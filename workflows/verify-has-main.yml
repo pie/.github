@@ -1,0 +1,23 @@
+name: "Verify Branch has Main"
+description: "Verifies that the branch on which the workflow is being run is up to date with main"
+on:
+  workflow_call:
+    inputs:
+      branch:
+        description: "Branch to check"
+        required: false
+        default: "main"    
+jobs:
+  verify:
+    name: "Run the verification"
+  runs-on: ubuntu-latest
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Check if branch contains main
+        run: |
+          if ! git merge-base --is-ancestor origin/main ${{ github.sha }};
+          then echo "This branch is not up to date with main";
+          exit 1; fi
