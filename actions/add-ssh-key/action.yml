@@ -1,0 +1,33 @@
+name: "Add SSH Key"
+description: "Adds our private SSH key to the workflow"
+inputs: 
+  ssh-key:
+    description: "SSH key to add"
+    required: true
+  ssh-host:
+    description: "SSH host to use"
+    required: true
+  ssh-port:
+    description: "SSH port to use"
+    required: false
+    default: 22
+
+runs:
+  using: "composite"
+  steps:
+    - run: |
+            echo 'made it to mkdir'
+            mkdir -p /home/runner/.ssh
+            echo 'made it to ssh-keyscan'
+            ssh-keyscan -p ${{ inputs.ssh-port }} ${{ inputs.ssh-host }} >> /home/runner/.ssh/known_hosts
+            echo 'made it to adding SSH_PRIVATE_KEY'
+            echo "${{ inputs.ssh-key }}" > /home/runner/.ssh/github_actions
+            echo 'made it to chmod 600'
+            chmod 600 /home/runner/.ssh/github_actions
+            echo 'made it to ssh-agent -a'
+            eval "$(ssh-agent -a /tmp/ssh_agent.sock)"
+            echo 'made it to ssh-add'
+            ssh-add /home/runner/.ssh/github_actions
+      shell: bash
+
+            
