@@ -1,0 +1,22 @@
+name: "Deploy via Rsync"
+description: "Adds our private SSH key to the workflow runner so that it can access the remote server"
+inputs:
+  ssh-host:
+    description: "SSH host to use"
+    required: true
+  ssh-port:
+    description: "SSH port to use"
+    required: false
+    default: 22
+  ssh-user:
+    description: "SSH user to connect"
+    required: true
+  destination-path:
+    description: "Destination path to copy files"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - run: rsync -avPC --no-perms -e 'ssh -i /home/runner/.ssh/github_actions -p ${{inputs.ssh-port}}' . ${{inputs.ssh-user}}@${{inputs.ssh-host}}:${{inputs.destination-path}}
+      shell: bash
