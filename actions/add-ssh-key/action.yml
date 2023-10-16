@@ -21,7 +21,7 @@ runs:
             echo 'made it to ssh-keyscan'
             ssh-keyscan -p ${{ inputs.ssh-port }} ${{ inputs.ssh-host }} >> /home/runner/.ssh/known_hosts
             echo 'made it to adding SSH_PRIVATE_KEY'
-            echo "${{ secrets.ssh-key }}" > /home/runner/.ssh/github_actions
+            echo "${{ inputs.ssh-key }}" > /home/runner/.ssh/github_actions
             echo 'made it to chmod 600'
             chmod 600 /home/runner/.ssh/github_actions
             echo 'made it to ssh-agent -a'
