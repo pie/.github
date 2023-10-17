@@ -1,22 +1,21 @@
-name: "Deploy via Rsync"
-description: "Adds our private SSH key to the workflow runner so that it can access the remote server"
+name: "Verify Branch is Up-to-date"
+description: "Verifies that the branch the workflow is being run upon contains all commits from the target branch"
 inputs:
-  ssh-host:
-    description: "SSH host to use"
-    required: true
-  ssh-port:
-    description: "SSH port to use"
+  branch:
+    description: "Branch to verify against"
     required: false
-    default: 22
-  ssh-user:
-    description: "SSH user to connect"
-    required: true
-  destination-path:
-    description: "Destination path to copy files"
-    required: true
+    default: main
 
 runs:
   using: "composite"
   steps:
-    - run: rsync -avPC --no-perms -e 'ssh -i /home/runner/.ssh/github_actions -p ${{inputs.ssh-port}}' . ${{inputs.ssh-user}}@${{inputs.ssh-host}}:${{inputs.destination-path}}
-      shell: bash
+      - name: Git checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Check if branch contains main
+        run: |
+          if ! git merge-base --is-ancestor origin/${{inputs.branch}} ${{ github.sha }};
+          then echo "This branch is not up to date with main";
+          exit 1; fi
+        shell: bash
