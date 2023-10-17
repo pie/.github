@@ -1,0 +1,22 @@
+name: "Synchronise Remote"
+description: "Logs into the remote via SSH and runs the specified sync script"
+inputs:
+  ssh-host:
+    description: "SSH host to use"
+    required: true
+  ssh-port:
+    description: "SSH port to use"
+    required: false
+    default: 22
+  ssh-user:
+    description: "SSH user to connect"
+    required: true
+  destination-path:
+    description: "Destination path to synchronisation script"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - run: ssh -i /home/runner/.ssh/github_actions -p ${{inputs.ssh-port}} ${{inputs.ssh-user}}@${{inputs.ssh-host}} '${{inputs.destination-path}}'
+      shell: bash
