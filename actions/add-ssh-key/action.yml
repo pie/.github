@@ -16,16 +16,10 @@ runs:
   using: "composite"
   steps:
     - run: |
-            echo 'made it to mkdir'
             mkdir -p /home/runner/.ssh
-            echo 'made it to ssh-keyscan'
             ssh-keyscan -p ${{ inputs.ssh-port }} ${{ inputs.ssh-host }} >> /home/runner/.ssh/known_hosts
-            echo 'made it to adding SSH_PRIVATE_KEY'
             echo "${{ inputs.ssh-key }}" > /home/runner/.ssh/github_actions
-            echo 'made it to chmod 600'
             chmod 600 /home/runner/.ssh/github_actions
-            echo 'made it to ssh-agent -a'
             eval "$(ssh-agent -a /tmp/ssh_agent.sock)"
-            echo 'made it to ssh-add'
             ssh-add /home/runner/.ssh/github_actions
       shell: bash
