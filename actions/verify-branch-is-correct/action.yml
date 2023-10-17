@@ -1,0 +1,17 @@
+name: "Verify Branch is Correct"
+description: "Verifies that the branch the workflow is being run upon is the target branch"
+inputs:
+  branch:
+    description: "Branch to verify against"
+    required: false
+    default: main
+
+runs:
+  using: "composite"
+  steps:
+      - name: Git checkout
+        uses: actions/checkout@v3
+
+      - name: Check if we are on the correct branch
+        if: ${{ github.ref_name }} != ${{ inputs.branch }}
+        run: exit 1
