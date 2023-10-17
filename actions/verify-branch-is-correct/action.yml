@@ -15,3 +15,4 @@ runs:
       - name: Check if we are on the correct branch
         if: ${{ github.ref_name }} != ${{ inputs.branch }}
         run: exit 1
+        shell: bash
