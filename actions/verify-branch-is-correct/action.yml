@@ -9,9 +9,6 @@ inputs:
 runs:
   using: "composite"
   steps:
-      - name: Git checkout
-        uses: actions/checkout@v3
-
       - name: Check if we are on the correct branch
         if: ${{ github.ref_name }} != ${{ inputs.branch }}
         run: exit 1
