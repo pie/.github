@@ -11,6 +11,10 @@ inputs:
   ssh-user:
     description: "SSH user to connect"
     required: true
+  remote-lang:
+    description: "Remote language to use"
+    required: false
+    default: "en_US.UTF-8"
   destination-path:
     description: "Destination path to synchronisation script"
     required: true
@@ -18,5 +22,5 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - run: ssh -i /home/runner/.ssh/github_actions -p ${{inputs.ssh-port}} ${{inputs.ssh-user}}@${{inputs.ssh-host}} '${{inputs.destination-path}}'
+    - run: LANG="en_US.UTF-8" ; ssh -i /home/runner/.ssh/github_actions -p ${{inputs.ssh-port}} ${{inputs.ssh-user}}@${{inputs.ssh-host}} '${{inputs.destination-path}}'
       shell: bash
