@@ -1,6 +1,6 @@
 name: Synchronise Environments
 
-on: workflow_dispatch
+on: workflow_call
 
 inputs:
   ssh-host:
