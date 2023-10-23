@@ -11,10 +11,6 @@ inputs:
   ssh-user:
     description: "SSH user to connect"
     required: true
-  remote-lang:
-    description: "Remote language to use"
-    required: false
-    default: "en_US.UTF-8"
   destination-path:
     description: "Destination path to synchronisation script"
     required: true

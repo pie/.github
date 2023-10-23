@@ -1,0 +1,38 @@
+name: Synchronise Environments
+
+on: workflow_dispatch
+
+inputs:
+  ssh-host:
+    description: "SSH host to use"
+    required: true
+  ssh-port:
+    description: "SSH port to use"
+    required: false
+    default: 22
+  ssh-user:
+    description: "SSH user to connect"
+    required: true
+  destination-path:
+    description: "Destination path to synchronisation script"
+    required: true
+
+jobs:
+  sync_remote:
+    runs-on: ubuntu-latest
+    steps:
+
+      - uses: pie/.github/actions/add-ssh-key@main
+        name: Add SSH Key to this runner
+        with:
+          ssh-port: ${{inputs.ssh-port}}
+          ssh-host: ${{inputs.ssh-host}}
+          ssh-key: ${{secrets.SSH_PRIVATE_KEY}}
+
+      - uses: pie/.github/actions/synchronise-remote@main
+        name: Synchronise remote from Production to Staging
+        with:
+          ssh-port: ${{inputs.ssh-port}}
+          ssh-host: ${{inputs.ssh-host}}
+          ssh-user: ${{inputs.ssh-user}}
+          destination-path: ${{inputs.destination-path}}
