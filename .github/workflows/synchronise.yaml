@@ -16,7 +16,7 @@ on:
         type: string
         description: "SSH user to connect"
         required: true
-      destination-path:
+      synchronisation-script:
         type: string
         description: "Destination path to synchronisation script"
         required: true
@@ -38,9 +38,9 @@ jobs:
           ssh-key: ${{secrets.SSH_PRIVATE_KEY}}
 
       - uses: pie/.github/actions/synchronise-remote@main
-        name: Synchronise remote from Production to Staging
+        name: Running ${{inputs.synchronisation-script}} on remote
         with:
           ssh-port: ${{inputs.ssh-port}}
           ssh-host: ${{inputs.ssh-host}}
           ssh-user: ${{inputs.ssh-user}}
-          destination-path: ${{inputs.destination-path}}
+          synchronisation-script: ${{inputs.synchronisation-script}}

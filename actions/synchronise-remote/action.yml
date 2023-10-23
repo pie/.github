@@ -11,12 +11,12 @@ inputs:
   ssh-user:
     description: "SSH user to connect"
     required: true
-  destination-path:
+  synchronisation-script:
     description: "Destination path to synchronisation script"
     required: true
 
 runs:
   using: "composite"
   steps:
-    - run: LANG="en_US.UTF-8" ; ssh -i /home/runner/.ssh/github_actions -p ${{inputs.ssh-port}} ${{inputs.ssh-user}}@${{inputs.ssh-host}} '${{inputs.destination-path}}'
+    - run: LANG="en_US.UTF-8" ; ssh -i /home/runner/.ssh/github_actions -p ${{inputs.ssh-port}} ${{inputs.ssh-user}}@${{inputs.ssh-host}} '${{inputs.synchronisation-script}}'
       shell: bash
