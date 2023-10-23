@@ -20,6 +20,10 @@ on:
         type: string
         description: "Destination path to synchronisation script"
         required: true
+    secrets:
+      SSH_PRIVATE_KEY:
+        description: "SSH private key"
+        required: true
 
 jobs:
   sync_remote:
