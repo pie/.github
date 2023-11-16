@@ -10,7 +10,8 @@ inputs:
     default: 22
   ssh-user:
     description: "SSH user to connect"
-    required: true
+    required: false
+    default: "piecode"
   synchronisation-script:
     description: "Destination path to synchronisation script"
     required: true
@@ -18,5 +19,5 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - run: LANG="en_US.UTF-8" ; ssh -i /home/runner/.ssh/github_actions -p ${{inputs.ssh-port}} ${{inputs.ssh-user}}@${{inputs.ssh-host}} '${{inputs.synchronisation-script}}'
+    - run: LANG="en_US.UTF-8" ; ssh server '${{inputs.synchronisation-script}}'
       shell: bash
