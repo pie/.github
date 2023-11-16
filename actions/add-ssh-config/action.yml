@@ -1,0 +1,25 @@
+name: "Create SSH Config"
+description: "Adds our private SSH key to the workflow runner so that it can access the remote server"
+inputs:
+  ssh-user:
+    description: "SSH user to use"
+    required: false
+    default: "piecode"
+  ssh-host:
+    description: "SSH host to use"
+    required: true
+  ssh-port:
+    description: "SSH port to use"
+    required: false
+    default: "22"
+  ssh-key:
+    description: "SSH key to add"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - run: echo "${{ github.action_path }}" >> $GITHUB_PATH
+      shell: bash
+    - run: script.sh ${{ inputs.ssh-user }} ${{ inputs.ssh-host }} "${{ inputs.ssh-key }}" ${{ inputs.ssh-port }}
+      shell: bash
