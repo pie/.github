@@ -4,10 +4,14 @@ inputs:
   destination-path:
     description: "Destination path to copy files"
     required: true
-  additional-args:
+  rsync-args:
     description: "Additional arguments to pass to rsync"
     required: false
     default: ""
+  rsync-flags:
+    description: "Additional flags to pass to rsync"
+    required: false
+    default: "-avP"
   ssh-host:
     description: "SSH host to use"
     required: true
@@ -27,5 +31,5 @@ runs:
       uses: actions/checkout@v3
     
     - name: Rsync to the remote
-      run: rsync -avPC --no-perms --no-times --no-owner --delete-after ${{inputs.additional-args}} . server:${{inputs.destination-path}}
+      run: rsync ${{inputs.rsync-flags}} --no-perms --no-times --no-owner --delete-after ${{inputs.rsync-args}} . server:${{inputs.destination-path}}
       shell: bash
