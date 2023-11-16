@@ -27,5 +27,5 @@ runs:
       uses: actions/checkout@v3
     
     - name: Rsync to the remote
-      run: rsync -avP --no-perms --no-times --no-owner --delete-after ${{inputs.additional-args}} . server:${{inputs.destination-path}}
+      run: rsync -avPC --no-perms --no-times --no-owner --delete-after ${{inputs.additional-args}} . server:${{inputs.destination-path}}
       shell: bash
