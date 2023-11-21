@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
-      - uses: pie/.github/actions/add-ssh-key@main
+      - uses: pie/.github/actions/add-ssh-config@main
         name: Add SSH Key to this runner
         with:
           ssh-port: ${{inputs.ssh-port}}
