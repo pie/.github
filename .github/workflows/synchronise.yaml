@@ -3,10 +3,6 @@ name: Synchronise Environments
 on: 
   workflow_call:
     inputs:
-      ssh-host:
-        type: string
-        description: "SSH host to use"
-        required: true
       ssh-port:
         type: number
         description: "SSH port to use"
@@ -15,10 +11,15 @@ on:
       ssh-user:
         type: string
         description: "SSH user to connect"
-        required: true
+        required: false
+        default: piecode
       synchronisation-script:
         type: string
-        description: "Destination path to synchronisation script"
+        description: "Destination path to synchronisation script on remote"
+        required: true
+      ssh-host:
+        type: string
+        description: "SSH host to use"
         required: true
     secrets:
       SSH_PRIVATE_KEY:
