@@ -3,10 +3,6 @@ name: Synchronise Environments
 on: 
   workflow_call:
     inputs:
-      ssh-host:
-        type: string
-        description: "SSH host to use"
-        required: true
       ssh-port:
         type: number
         description: "SSH port to use"
@@ -15,10 +11,25 @@ on:
       ssh-user:
         type: string
         description: "SSH user to connect"
-        required: true
-      synchronisation-script:
+        required: false
+        default: piecode
+      destination-path:
         type: string
-        description: "Destination path to synchronisation script"
+        description: "Destination path to remote deployment directory"
+        required: true
+      rsync-args:
+        type: string
+        description: "additional arguments to send to rsync"
+        required: false
+        default: "--no-perms --no-times --no-owner --delete-after"
+      rsync-flags:
+        type: string
+        description: "additional flags to send to rsync"
+        required: false
+        default: "-avP"
+      ssh-host:
+        type: string
+        description: "SSH host to use"
         required: true
     secrets:
       SSH_PRIVATE_KEY:
@@ -37,10 +48,11 @@ jobs:
           ssh-host: ${{inputs.ssh-host}}
           ssh-key: ${{secrets.SSH_PRIVATE_KEY}}
 
-      - uses: pie/.github/actions/synchronise-remote@main
-        name: Running ${{inputs.synchronisation-script}} on remote
+      - uses: pie/.github/actions/deploy-via-rsync-2@main
+        name: Deploying to  ${{inputs.destination-path}} on remote
         with:
           ssh-port: ${{inputs.ssh-port}}
           ssh-host: ${{inputs.ssh-host}}
           ssh-user: ${{inputs.ssh-user}}
-          synchronisation-script: ${{inputs.synchronisation-script}}
+          destination-path: ${{inputs.destination-path}}
+          rsync-args: ${{inputs.rsync-args}}
