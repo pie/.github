@@ -15,7 +15,8 @@ on:
       ssh-user:
         type: string
         description: "SSH user to connect"
-        required: true
+        required: false
+        default: piecode
       synchronisation-script:
         type: string
         description: "Destination path to synchronisation script"
