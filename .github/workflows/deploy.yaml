@@ -37,7 +37,7 @@ on:
         required: true
 
 jobs:
-  sync_remote:
+  rsync_to_remote:
     runs-on: ubuntu-latest
     steps:
 
