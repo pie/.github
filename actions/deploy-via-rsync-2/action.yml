@@ -38,12 +38,14 @@ runs:
 
     - name: File exists
       if: steps.check_files.outputs.files_exists == 'true'
+      shell: bash
       # Only runs if all of the files exists
       run: |
         echo 'EXCLUDE_FROM=" --exclude-from=.rsyncignore "' >> "$GITHUB_ENV"
 
     - name: File does not exist
       if: ! steps.check_files.outputs.files_exists == 'true'
+      shell: bash
       # Only runs if any of the files does not exist
       run: |
         echo 'EXCLUDE_FROM=""' >> "$GITHUB_ENV"
