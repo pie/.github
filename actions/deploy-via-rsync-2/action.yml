@@ -30,6 +30,24 @@ runs:
     - name: Check out the Repo
       uses: actions/checkout@v3
     
+    - name: Check for ignore file
+      id: check_files
+      uses: andstor/file-existence-action@v2
+      with:
+        files: ".rsyncignore"
+
+    - name: File exists
+      if: steps.check_files.outputs.files_exists == 'true'
+      # Only runs if all of the files exists
+      run: |
+        echo 'EXCLUDE_FROM=" --exclude-from=.rsyncignore "' >> "$GITHUB_ENV"
+
+    - name: File does not exist
+      if: ! steps.check_files.outputs.files_exists == 'true'
+      # Only runs if any of the files does not exist
+      run: |
+        echo 'EXCLUDE_FROM=""' >> "$GITHUB_ENV"
+
     - name: Rsync to the remote
-      run: rsync ${{inputs.rsync-flags}}  ${{inputs.rsync-args}} . server:${{inputs.destination-path}}
+      run: rsync ${{inputs.rsync-flags}}  ${{inputs.rsync-args}} $EXCLUDE_FROM . server:${{inputs.destination-path}}
       shell: bash
