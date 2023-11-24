@@ -44,6 +44,7 @@ jobs:
       - uses: pie/.github/actions/add-ssh-config@main
         name: Add SSH Key to this runner
         with:
+          ssh-user: ${{inputs.ssh-user}}
           ssh-port: ${{inputs.ssh-port}}
           ssh-host: ${{inputs.ssh-host}}
           ssh-key: ${{secrets.SSH_PRIVATE_KEY}}
