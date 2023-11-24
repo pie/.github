@@ -11,7 +11,7 @@ inputs:
   rsync-flags:
     description: "Flags to pass to rsync"
     required: false
-    default: "-avP"
+    default: "-aqP"
   ssh-host:
     description: "SSH host to use"
     required: true
