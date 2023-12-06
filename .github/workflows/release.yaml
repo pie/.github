@@ -1,0 +1,81 @@
+name: Create a Release if required
+
+on: workflow_call
+
+jobs:
+    # This job utilises a marketplace action tag to automatically create a release when a pull request 
+    # is labelled as release:major, release:minor or release:patch (it can also be controlled via commit
+    # message - see their docs for more info)
+    #
+    # Unfortunately it doesn't expose a point at which we can change the files before the Version is
+    # tagged, so we run it in 'dry-run' mode and expose its outputs for use later if required
+    check_for_release:
+      runs-on: ubuntu-latest
+      outputs:
+        version: ${{ steps.prerelease.outputs.version }}
+        release_body: ${{ steps.prerelease.outputs.body }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      steps:
+        - id: prerelease
+          uses: rymndhng/release-on-push-action@master
+          name: Check if we are running a new release
+          with:
+            tag_prefix: ""
+            bump_version_scheme: norelease
+            dry_run: true
+            use_github_release_notes: true
+    # This job only runs if the previous job detects that a new release is required. It checks out the 
+    # main branch of the repo, runs some string replaces via `sed` to bump the version numbers. These
+    # may be changed to suit your project if required.
+    #
+    # @TODO Investigate the possibility of adding a build step between Bump the Version Numbers and
+    # Create a Github Release. The release action allows for zip artifacts to be uploaded, which may
+    # be extremely appropriate for distribution.
+    create_release:
+      needs: check_for_release
+      runs-on: ubuntu-latest
+      if: needs.check_for_release.outputs.version
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   
+      steps:
+        - name: Check out the repo
+          uses: actions/checkout@v3
+        
+        - name: Install Composer dependencies
+          uses: php-actions/composer@v6
+          with:
+            dev: no
+    
+        - name: Get current date
+          id: get_date
+          run: echo "::set-output name=date::$(date +'%Y-%m-%d')"
+        
+        - name: Bump the version numbers
+          run: |
+            echo "Creating release version ${{ needs.check_for_release.outputs.version }}"
+            sed -i "s/version\":\ \"[0-9]\+\.\?[0-9]*\.\?[0-9]*/version\":\ \"${{ needs.check_for_release.outputs.version }}/g" ./package.json
+            sed -i "s/version\":\ \"[0-9]\+\.\?[0-9]*\.\?[0-9]*/version\":\ \"${{ needs.check_for_release.outputs.version }}/g" ./update.json
+            sed -i "s/download\/[0-9]\+\.\?[0-9]*\.\?[0-9]*/download\/${{ needs.check_for_release.outputs.version }}/g" ./update.json
+            sed -i "s/Version:\ [0-9]\+\.\?[0-9]*\.\?[0-9]*/Version:\ ${{ needs.check_for_release.outputs.version }}/g" ./${{ github.event.repository.name }}.php
+            sed -i "s/\[Unreleased\]/\[Unreleased\]\r\n\r\n## \[${{ needs.check_for_release.outputs.version }}\] ${{steps.get_date.outputs.date}} /g" ./changelog.md
+            git config user.name "Github Actions"
+            git config user.email "<>"
+            git add .
+            git commit -am "Version Numbering"
+            git push
+  
+        # This step creates a zip of the plugin which can be used for installation, and by the plugin updater. 
+        - name: Build required zip artifact
+          run: |
+            cd ../
+            zip -r -q ~/${{ github.event.repository.name }}.zip ./${{ github.event.repository.name }} -x ".git/*" ".github/*" "composer.*" "package.json" "update.json" "DOCKER_ENV" "docker_tag" "*.log"
+        
+        - name: Create a GitHub release
+          uses: ncipollo/release-action@v1
+          with:
+            tag: ${{ needs.check_for_release.outputs.version }}
+            name: ${{ needs.check_for_release.outputs.version }}
+            body: ${{ needs.check_for_release.outputs.release_body }}
+            token: ${{ secrets.GITHUB_TOKEN }}
+            artifacts: "~/${{ github.event.repository.name }}.zip" 
