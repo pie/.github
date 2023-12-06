@@ -1,6 +1,4 @@
-## Github Workflows for PIE.co.de
-
-## Description
+# Github Workflows for PIE.co.de
 
 This repository contains some re-usable workflows and actions for managing repository deployment
 
