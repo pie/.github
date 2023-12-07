@@ -2,12 +2,10 @@ name: Create a Release if required
 
 on: 
   workflow_call:
-    inputs:
-      ssh-port:
-        type: number
-        description: "SSH port to use"
-        required: false
-        default: 22
+    secrets:
+      GITHUB_TOKEN:
+        description: "Used for authentication with the GitHub API"
+        required: true
 
 jobs:
     # This job utilises a marketplace action tag to automatically create a release when a pull request 
