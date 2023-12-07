@@ -98,6 +98,7 @@ jobs:
           run: |
             cd ../
             zip -r -q ~/${{ github.event.repository.name }}.zip ./${{ github.event.repository.name }} -x@.zipignore
+            ls -la ~/ 
         
         - name: Create a GitHub release
           uses: ncipollo/release-action@v1
