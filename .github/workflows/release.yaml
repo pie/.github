@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       token:
-        description: "Used for authentication with the GitHub API to upload the zip artifact"
+        description: "secrets.GITHUB_TOKEN from the calling repository"
         required: true
         type: string
 
