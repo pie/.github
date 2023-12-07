@@ -2,11 +2,9 @@ name: Create a Release if required
 
 on: 
   workflow_call:
-    inputs:
+    secrets:
       token:
-        description: "secrets.GITHUB_TOKEN from the calling repository"
         required: true
-        type: string
 
 jobs:
     # This job utilises a marketplace action tag to automatically create a release when a pull request 
@@ -21,7 +19,7 @@ jobs:
         version: ${{ steps.prerelease.outputs.version }}
         release_body: ${{ steps.prerelease.outputs.body }}
       env:
-        GITHUB_TOKEN: ${{ inputs.token }}
+        GITHUB_TOKEN: ${{ secrets.token }}
       steps:
         - id: prerelease
           uses: rymndhng/release-on-push-action@master
@@ -43,7 +41,7 @@ jobs:
       runs-on: ubuntu-latest
       if: needs.check_for_release.outputs.version
       env:
-        GITHUB_TOKEN: ${{ inputs.token }}   
+        GITHUB_TOKEN: ${{ secrets.token }}   
       steps:
         - name: Check out the repo
           uses: actions/checkout@v3
@@ -105,5 +103,5 @@ jobs:
             tag: ${{ needs.check_for_release.outputs.version }}
             name: ${{ needs.check_for_release.outputs.version }}
             body: ${{ needs.check_for_release.outputs.release_body }}
-            token: ${{ inputs.token }}
+            token: ${{ secrets.token }}
             artifacts: "~/${{ github.event.repository.name }}.zip" 
