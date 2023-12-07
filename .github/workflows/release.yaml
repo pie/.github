@@ -83,7 +83,7 @@ jobs:
           shell: bash
           # Only runs if all of the files exists
           run: |
-            sed 's/^/${{ github.event.repository.name }}/' .zipignore > ../.zipignore    
+            sed 's/^/${{ github.event.repository.name }}\//' .zipignore > ../.zipignore    
     
         - name: File does not exist
           if: steps.check_files.outputs.files_exists != 'true'
