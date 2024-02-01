@@ -10,6 +10,7 @@ This workflow deploys to a remote server using rsync.
 
 **Usage Notes:**
 
+- Generate a new Keypair for your repository if you haven't already - https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent#generating-a-new-ssh-key
 - Add SSH_PRIVATE_KEY to your repository secrets.
 - Add SSH_PUBLIC_KEY to your repository variables.
 - Add an `.rsyncignore` file to the root of your repo listing files which should not be deployed. 
