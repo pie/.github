@@ -39,7 +39,7 @@ runs:
       with:
         working_dir: ${{ github.workspace }}
         command: install
-        arguments: --no-dev --no-interaction --no-progress --optimize-autoloader --prefer-dist
+        args: --no-dev --no-interaction --no-progress --optimize-autoloader --prefer-dist
     - name: Check for ignore file
       id: check_files
       uses: andstor/file-existence-action@v2
