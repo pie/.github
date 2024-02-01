@@ -54,7 +54,7 @@ jobs:
           ssh-host: ${{inputs.ssh-host}}
           ssh-key: ${{secrets.SSH_PRIVATE_KEY}}
 
-      - uses: pie/.github/actions/deploy-via-rsync-2@main
+      - uses: pie/.github/actions/deploy-via-rsync-3@main
         name: Deploying to  ${{inputs.destination-path}} on remote
         with:
           ssh-port: ${{inputs.ssh-port}}
@@ -62,3 +62,4 @@ jobs:
           ssh-user: ${{inputs.ssh-user}}
           destination-path: ${{inputs.destination-path}}
           rsync-args: ${{inputs.rsync-args}}
+          composer: ${{inputs.composer}}
