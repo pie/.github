@@ -37,7 +37,6 @@ runs:
       if: ${{inputs.composer}} == 'true'
       uses: php-actions/composer@v6
       with:
-        working_dir: ${{ github.workspace }}
         command: install
         args: --no-dev --no-interaction --no-progress --optimize-autoloader --prefer-dist
     - name: Check for ignore file
