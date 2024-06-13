@@ -32,10 +32,10 @@ on:
         description: "SSH host to use"
         required: true
       composer: 
-        type: boolean
+        type: string
         description: "Whether to run composer install"
         required: false
-        default: false
+        default: "false"
     secrets:
       SSH_PRIVATE_KEY:
         description: "SSH private key"
