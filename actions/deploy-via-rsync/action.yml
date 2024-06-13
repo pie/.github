@@ -34,7 +34,7 @@ runs:
     - name: Check out the Repo
       uses: actions/checkout@v3
     - name: Install Composer Dependencies if required
-      if: ${{inputs.composer}} === "true"
+      if: ${{inputs.composer == 'true' }}
       uses: php-actions/composer@v6
       with:
         command: install
