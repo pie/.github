@@ -63,3 +63,5 @@ jobs:
           destination-path: ${{inputs.destination-path}}
           rsync-args: ${{inputs.rsync-args}}
           composer: ${{inputs.composer}}
+          npm: ${{inputs.npm}}
+          node_version: ${{inputs.node_version}}
