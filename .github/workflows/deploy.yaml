@@ -36,6 +36,16 @@ on:
         description: "Whether to run composer install"
         required: false
         default: "false"
+      npm: 
+        type: string
+        description: "Whether to run npm install/build"
+        required: false
+        default: "false"
+      node_version:
+        type: string
+        description: "Node version to use"
+        required: false
+        default: "18"
     secrets:
       SSH_PRIVATE_KEY:
         description: "SSH private key"
