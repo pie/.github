@@ -41,20 +41,23 @@ runs:
   steps:
     - name: Check out the Repo
       uses: actions/checkout@v3
-      
+
     - name: Install Composer Dependencies if required
       if: ${{inputs.composer == 'true' }}
       uses: php-actions/composer@v6
       with:
         command: install
         args: --no-dev --no-interaction --no-progress --optimize-autoloader --prefer-dist
+        
     - name: Install Node Dependencies if required
       if: ${{inputs.npm == 'true' }}
       uses: actions/setup-node@v4
       with:
         node-version: ${{ inputs.node_version || matrix.node }}
     - run: npm install
+      shell: bash
     - run: npm run build
+      shell: bash
 
     - name: Check for ignore file
       id: check_files
