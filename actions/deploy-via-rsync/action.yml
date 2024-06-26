@@ -27,10 +27,14 @@ inputs:
     description: "Run composer install"
     required: false
     default: "false"
-  yarn:
-    description: "Run yarn install and build"
+  npm:
+    description: "Run npm install and build"
     required: false
     default: "false"
+  node_version:
+    description: "Node version to use"
+    required: false
+    default: "18"
 
 runs:
   using: "composite"
