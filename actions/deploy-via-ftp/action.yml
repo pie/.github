@@ -54,10 +54,12 @@ runs:
       shell: bash
     
     - name: 📂 Sync files
-      uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+      uses: SamKirkland/FTP-Deploy-Action@v3.0.0
       with:
         server: ${{ inputs.ftp-host }}
         username: ${{ inputs.ftp-username }}
         password: ${{ inputs.ftp-password }}
         port: ${{ inputs.ftp-port }}
         server-dir: ${{ inputs.destination-path }}
+        timeout: 60000
+        log-level: verbose
