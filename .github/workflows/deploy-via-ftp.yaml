@@ -35,6 +35,10 @@ on:
         description: "Node version to use"
         required: false
         default: "18"
+    secrets: 
+      FTP_PASSWORD: 
+        description: "FTP password"
+        required: true
 
 jobs:
   ftp_to_remote:
@@ -47,6 +51,7 @@ jobs:
           ftp-host: ${{inputs.ftp-host}}
           ftp-username: ${{inputs.ftp-username}}
           ftp-port: ${{inputs.ftp-port}}
+          ftp-password: ${{secrets.FTP_PASSWORD}}
           destination-path: ${{inputs.destination-path}}
           composer: ${{inputs.composer}}
           npm: ${{inputs.npm}}

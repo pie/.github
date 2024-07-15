@@ -11,6 +11,9 @@ inputs:
     description: "FTP port to connect to"
     required: false
     default: 21
+  ftp-password:
+    description: "FTP password"
+    required: true
   destination-path:
     description: "Destination path to copy files"
     required: true
@@ -26,10 +29,6 @@ inputs:
     description: "Node version to use"
     required: false
     default: "18"
-secrets:
-  FTP_PASSWORD:
-    description: "FTP password"
-    required: true
 
 runs:
   using: "composite"
