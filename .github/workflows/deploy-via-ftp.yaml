@@ -3,7 +3,7 @@ name: Deploy via FTP
 on: 
   workflow_call:
     inputs:
-      ftp-server:
+      ftp-host:
         type: string
         description: "FTP server to connect to"
         required: true
@@ -44,7 +44,7 @@ jobs:
       - uses: pie/.github/actions/deploy-via-ftp@main
         name: Deploying to ${{inputs.destination-path}} on remote
         with:
-          ftp-server: ${{inputs.ftp-server}}
+          ftp-host: ${{inputs.ftp-host}}
           ftp-username: ${{inputs.ftp-username}}
           ftp-port: ${{inputs.ftp-port}}
           destination-path: ${{inputs.destination-path}}

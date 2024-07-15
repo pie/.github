@@ -1,7 +1,7 @@
 name: "Deploy via FTP"
 description: "Uploads files to a remote server via FTP"
 inputs:
-  ftp-server:
+  ftp-host:
     description: "FTP server to connect to"
     required: true
   ftp-username:
@@ -57,7 +57,7 @@ runs:
     - name: 📂 Sync files
       uses: SamKirkland/FTP-Deploy-Action@v4.3.5
       with:
-        server: inputs.ftp-server
+        server: inputs.ftp-host
         username: inputs.ftp-username
         password: ${{ secrets.FTP_PASSWORD }}
         port: inputs.ftp-port
