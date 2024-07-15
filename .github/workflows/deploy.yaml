@@ -1,4 +1,4 @@
-name: Synchronise Environments
+name: Deploy via Rsync
 
 on: 
   workflow_call:
