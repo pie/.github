@@ -54,7 +54,7 @@ runs:
       shell: bash
     
     - name: 📂 Sync files
-      uses: SamKirkland/FTP-Deploy-Action@v3.0.0
+      uses: SamKirkland/FTP-Deploy-Action@v4.3.5
       with:
         server: ${{ inputs.ftp-host }}
         username: ${{ inputs.ftp-username }}
