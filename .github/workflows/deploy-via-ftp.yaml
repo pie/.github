@@ -16,6 +16,14 @@ on:
         description: "FTP port to connect to"
         required: false
         default: 21
+      ftp-exclude:
+        type: string
+        description: "Files to exclude"
+        required: false
+        default: |
+          **/.git*
+          **/.git*/**
+          **/node_modules/**
       destination-path:
         type: string
         description: "Destination path to remote deployment directory"
@@ -56,3 +64,4 @@ jobs:
           composer: ${{inputs.composer}}
           npm: ${{inputs.npm}}
           node_version: ${{inputs.node_version}}
+          ftp-exclude: ${{inputs.ftp-exclude}}

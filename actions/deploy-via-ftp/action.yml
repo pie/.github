@@ -14,6 +14,13 @@ inputs:
   ftp-password:
     description: "FTP password"
     required: true
+  ftp-exclude:
+    description: "Files to exclude"
+    required: false
+    default: |
+      **/.git*
+      **/.git*/**
+      **/node_modules/**
   destination-path:
     description: "Destination path to copy files"
     required: true
@@ -63,3 +70,4 @@ runs:
         server-dir: ${{ inputs.destination-path }}
         timeout: 60000
         log-level: verbose
+        exclude: ${{ inputs.ftp-exclude }}
