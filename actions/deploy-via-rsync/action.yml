@@ -54,8 +54,10 @@ runs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ inputs.node_version || matrix.node }}
-      - run: npm install
-      - run: npm run build
+
+    - name: Install dependencies and build
+      if: ${{inputs.npm == 'true' }}
+      run: npm install && npm run build
 
     - name: Check for ignore file
       id: check_files
