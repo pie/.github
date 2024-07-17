@@ -54,9 +54,6 @@ runs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ inputs.node_version || matrix.node }}
-      shell: bash
-      run: |
-        npm install && npm run build
 
     - name: Run npm install
       if: ${{inputs.npm == 'true'}}
