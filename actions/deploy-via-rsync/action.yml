@@ -58,6 +58,16 @@ runs:
       run: |
         npm install && npm run build
 
+    - name: Run npm install
+      if: ${{inputs.npm == 'true'}}
+      run: npm install
+      shell: bash
+
+    - name: Run npm run build
+      if: ${{inputs.npm == 'true'}}
+      run: npm run build
+      shell: bash
+
     - name: Check for ignore file
       id: check_files
       uses: andstor/file-existence-action@v2
