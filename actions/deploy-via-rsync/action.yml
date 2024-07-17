@@ -58,6 +58,7 @@ runs:
     - name: Install dependencies and build
       if: ${{inputs.npm == 'true' }}
       run: npm install && npm run build
+      shell: bash
 
     - name: Check for ignore file
       id: check_files
