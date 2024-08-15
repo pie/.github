@@ -2,8 +2,12 @@ name: "Deploy via Rsync"
 description: "Adds our private SSH key to the workflow runner so that it can access the remote server"
 inputs:
   destination-path:
-    description: "Destination path to copy files"
+    description: "Destination path to copy files to"
     required: true
+  source-path:
+    description: "Source path to copy files from"
+    required: false
+    default: "."
   rsync-args:
     description: "Arguments to pass to rsync"
     required: false
@@ -81,5 +85,5 @@ runs:
         echo EXCLUDE_FROM="" >> "$GITHUB_ENV"
 
     - name: Rsync to the remote
-      run: rsync ${{inputs.rsync-flags}}  ${{inputs.rsync-args}} ${{ env.EXCLUDE_FROM }} . server:${{inputs.destination-path}}
+      run: rsync ${{inputs.rsync-flags}}  ${{inputs.rsync-args}} ${{ env.EXCLUDE_FROM }} ${{inputs.source-path}} server:${{inputs.destination-path}}
       shell: bash

@@ -17,6 +17,11 @@ on:
         type: string
         description: "Destination path to remote deployment directory"
         required: true
+      source-path:
+        type: string
+        description: "Source path to copy files from"
+        required: false
+        default: "."
       rsync-args:
         type: string
         description: "additional arguments to send to rsync"
@@ -71,6 +76,7 @@ jobs:
           ssh-host: ${{inputs.ssh-host}}
           ssh-user: ${{inputs.ssh-user}}
           destination-path: ${{inputs.destination-path}}
+          source-path: ${{inputs.source-path}}
           rsync-args: ${{inputs.rsync-args}}
           composer: ${{inputs.composer}}
           npm: ${{inputs.npm}}
