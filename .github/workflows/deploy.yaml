@@ -46,6 +46,11 @@ on:
         description: "Whether to run npm install/build"
         required: false
         default: "false"
+      npm-run-command:
+        type: string
+        description: "NPM run command to use"
+        required: false
+        default: "npm run build"
       node_version:
         type: string
         description: "Node version to use"
@@ -80,4 +85,5 @@ jobs:
           rsync-args: ${{inputs.rsync-args}}
           composer: ${{inputs.composer}}
           npm: ${{inputs.npm}}
+          npm-run-command: ${{inputs.npm-run-command}}
           node_version: ${{inputs.node_version}}

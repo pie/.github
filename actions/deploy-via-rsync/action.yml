@@ -39,6 +39,10 @@ inputs:
     description: "Node version to use"
     required: false
     default: "18"
+  npm-run-command:
+    description: "NPM run command to use"
+    required: false
+    default: "npm run build"
 
 runs:
   using: "composite"
@@ -61,7 +65,7 @@ runs:
 
     - name: Install dependencies and build
       if: ${{inputs.npm == 'true' }}
-      run: npm install && npm run build
+      run: npm install && ${{inputs.npm-run-command}}
       shell: bash
 
     - name: Check for ignore file
