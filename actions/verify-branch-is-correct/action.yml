@@ -9,14 +9,12 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Debug 1
-      run: echo "github.ref_name: ${{ github.ref_name }}"
-      shell: bash
-      
     - name: Debug 2
       run: echo "inputs.branch: ${{ inputs.branch }}"
       shell: bash
-
+    - name: Debug 1
+      run: echo "github.ref_name: ${{ github.ref_name }}"
+      shell: bash
     - name: Check if we are on the correct branch
       if: ${{ github.ref_name != inputs.branch }}
       run: exit 1
