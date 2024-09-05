@@ -1,0 +1,67 @@
+name: Deploy via FTP
+
+on: 
+  workflow_call:
+    inputs:
+      ftp-host:
+        type: string
+        description: "FTP server to connect to"
+        required: true
+      ftp-username:
+        type: string
+        description: "FTP username to connect with"
+        required: true
+      ftp-port:
+        type: number
+        description: "FTP port to connect to"
+        required: false
+        default: 21
+      ftp-exclude:
+        type: string
+        description: "Files to exclude"
+        required: false
+        default: |
+          **/.git*
+          **/.git*/**
+          **/node_modules/**
+      destination-path:
+        type: string
+        description: "Destination path to remote deployment directory"
+        required: true
+      composer: 
+        type: string
+        description: "Whether to run composer install"
+        required: false
+        default: "false"
+      npm: 
+        type: string
+        description: "Whether to run npm install/build"
+        required: false
+        default: "false"
+      node_version:
+        type: string
+        description: "Node version to use"
+        required: false
+        default: "18"
+    secrets: 
+      FTP_PASSWORD: 
+        description: "FTP password"
+        required: true
+
+jobs:
+  ftp_to_remote:
+    runs-on: ubuntu-latest
+    steps:
+
+      - uses: pie/.github/actions/deploy-via-ftp@main
+        name: Deploying to ${{inputs.destination-path}} on remote
+        with:
+          ftp-host: ${{inputs.ftp-host}}
+          ftp-username: ${{inputs.ftp-username}}
+          ftp-port: ${{inputs.ftp-port}}
+          ftp-password: ${{secrets.FTP_PASSWORD}}
+          destination-path: ${{inputs.destination-path}}
+          composer: ${{inputs.composer}}
+          npm: ${{inputs.npm}}
+          node_version: ${{inputs.node_version}}
+          ftp-exclude: ${{inputs.ftp-exclude}}

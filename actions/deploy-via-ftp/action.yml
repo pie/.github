@@ -1,0 +1,74 @@
+name: "Deploy via FTP"
+description: "Uploads files to a remote server via FTP"
+inputs:
+  ftp-host:
+    description: "FTP server to connect to"
+    required: true
+  ftp-username:
+    description: "FTP username to connect with"
+    required: true
+  ftp-port:
+    description: "FTP port to connect to"
+    required: false
+    default: 21
+  ftp-password:
+    description: "FTP password"
+    required: true
+  ftp-exclude:
+    description: "Files to exclude"
+    required: false
+    default: |
+      **/.git*
+      **/.git*/**
+      **/node_modules/**
+  destination-path:
+    description: "Destination path to copy files"
+    required: true
+  composer:
+    description: "Run composer install"
+    required: false
+    default: "false"
+  npm:
+    description: "Run npm install and build"
+    required: false
+    default: "false"
+  node_version:
+    description: "Node version to use"
+    required: false
+    default: "18"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Check out the Repo
+      uses: actions/checkout@v3
+
+    - name: Install Composer Dependencies if required
+      if: ${{inputs.composer == 'true' }}
+      uses: php-actions/composer@v6
+      with:
+        command: install
+        args: --no-dev --no-interaction --no-progress --optimize-autoloader --prefer-dist
+        
+    - name: Install Node Dependencies if required
+      if: ${{inputs.npm == 'true' }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node_version || matrix.node }}
+
+    - name: Install dependencies and build
+      if: ${{inputs.npm == 'true' }}
+      run: npm install && npm run build
+      shell: bash
+    
+    - name: 📂 Sync files
+      uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+      with:
+        server: ${{ inputs.ftp-host }}
+        username: ${{ inputs.ftp-username }}
+        password: ${{ inputs.ftp-password }}
+        port: ${{ inputs.ftp-port }}
+        server-dir: ${{ inputs.destination-path }}
+        timeout: 60000
+        log-level: verbose
+        exclude: ${{ inputs.ftp-exclude }}

@@ -2,8 +2,12 @@ name: "Deploy via Rsync"
 description: "Adds our private SSH key to the workflow runner so that it can access the remote server"
 inputs:
   destination-path:
-    description: "Destination path to copy files"
+    description: "Destination path to copy files to"
     required: true
+  source-path:
+    description: "Source path to copy files from"
+    required: false
+    default: "."
   rsync-args:
     description: "Arguments to pass to rsync"
     required: false
@@ -35,6 +39,10 @@ inputs:
     description: "Node version to use"
     required: false
     default: "18"
+  npm-run-command:
+    description: "NPM run command to use"
+    required: false
+    default: "npm run build"
 
 runs:
   using: "composite"
@@ -54,9 +62,10 @@ runs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ inputs.node_version || matrix.node }}
-    - run: npm install
-      shell: bash
-    - run: npm run build
+
+    - name: Install dependencies and build
+      if: ${{inputs.npm == 'true' }}
+      run: npm install && ${{inputs.npm-run-command}}
       shell: bash
 
     - name: Check for ignore file
@@ -80,5 +89,5 @@ runs:
         echo EXCLUDE_FROM="" >> "$GITHUB_ENV"
 
     - name: Rsync to the remote
-      run: rsync ${{inputs.rsync-flags}}  ${{inputs.rsync-args}} ${{ env.EXCLUDE_FROM }} . server:${{inputs.destination-path}}
+      run: rsync ${{inputs.rsync-flags}}  ${{inputs.rsync-args}} ${{ env.EXCLUDE_FROM }} ${{inputs.source-path}} server:${{inputs.destination-path}}
       shell: bash
