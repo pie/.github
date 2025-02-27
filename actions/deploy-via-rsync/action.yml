@@ -31,6 +31,10 @@ inputs:
     description: "Run composer install"
     required: false
     default: "false"
+  sshpass:
+    description: "Connect using SSH Pass instead of Key"
+    required: false
+    default: "false"
   npm:
     description: "Run npm install and build"
     required: false
@@ -88,6 +92,12 @@ runs:
       run: |
         echo EXCLUDE_FROM="" >> "$GITHUB_ENV"
 
-    - name: Rsync to the remote
+    - name: Rsync to the remote with pubkey
+      if: inputs.sshpass != 'true'
       run: rsync ${{inputs.rsync-flags}}  ${{inputs.rsync-args}} ${{ env.EXCLUDE_FROM }} ${{inputs.source-path}} server:${{inputs.destination-path}}
+      shell: bash
+    
+    - name: Rsync to the remote with sshpass
+      if: inputs.sshpass == 'true'
+      run: sshpass -p "$SSHPASS" rsync ${{inputs.rsync-flags}}  ${{inputs.rsync-args}} ${{ env.EXCLUDE_FROM }} -e 'ssh -o StrictHostKeyChecking=no -p ${{inputs.ssh-port}}'  ${{inputs.source-path}} ${{inputs.ssh-user}}@${{inputs.ssh-host}}:${{inputs.destination-path}}
       shell: bash

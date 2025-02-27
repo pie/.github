@@ -36,6 +36,11 @@ on:
         type: string
         description: "SSH host to use"
         required: true
+      sshpass: 
+        type: string
+        description: "Whether to deploy using sshpass"
+        required: false
+        default: "false"
       composer: 
         type: string
         description: "Whether to run composer install"
@@ -68,11 +73,21 @@ jobs:
 
       - uses: pie/.github/actions/add-ssh-config@main
         name: Add SSH Key to this runner
+        if: ${{ inputs.sshpass == 'false' }}
         with:
           ssh-user: ${{inputs.ssh-user}}
           ssh-port: ${{inputs.ssh-port}}
           ssh-host: ${{inputs.ssh-host}}
           ssh-key: ${{secrets.SSH_PRIVATE_KEY}}
+
+      - uses: pie/.github/actions/add-ssh-pass@main
+        name: Add SSH Pass to this runner
+        if: ${{ inputs.sshpass != 'false' }}
+        with:
+          ssh-user: ${{inputs.ssh-user}}
+          ssh-port: ${{inputs.ssh-port}}
+          ssh-host: ${{inputs.ssh-host}}
+          ssh-pass: ${{secrets.SSH_PRIVATE_KEY}}
 
       - uses: pie/.github/actions/deploy-via-rsync@main
         name: Deploying to  ${{inputs.destination-path}} on remote
@@ -84,6 +99,7 @@ jobs:
           source-path: ${{inputs.source-path}}
           rsync-args: ${{inputs.rsync-args}}
           composer: ${{inputs.composer}}
+          sshpass: ${{inputs.sshpass}}
           npm: ${{inputs.npm}}
           npm-run-command: ${{inputs.npm-run-command}}
           node_version: ${{inputs.node_version}}
