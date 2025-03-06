@@ -103,9 +103,9 @@ runs:
 
     - name: Set SSHPASS environment variable
       if: inputs.sshpass == 'true'
-      run: echo "SSHPASS=${{inputs.ssh-password}}" >> "$GITHUB_ENV"
+      run: echo "SSHPASS=${{inputs.ssh-pass}}" >> "$GITHUB_ENV"
       shell: bash
-      
+
     - name: Check if SSHPASS is set (and set if not)
       if: inputs.sshpass == 'true'
       run: |
