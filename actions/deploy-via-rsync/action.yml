@@ -47,6 +47,8 @@ inputs:
     description: "NPM run command to use"
     required: false
     default: "npm run build"
+  env:
+    SSHPASS: ${{secrets.SSH_PRIVATE_KEY}}  # Pass it directly here
 
 runs:
   using: "composite"
@@ -97,11 +99,11 @@ runs:
       run: rsync ${{inputs.rsync-flags}}  ${{inputs.rsync-args}} ${{ env.EXCLUDE_FROM }} ${{inputs.source-path}} server:${{inputs.destination-path}}
       shell: bash
 
-    - name: Check if SSHPASS is set
+    - name: Check if SSHPASS is set (and set if not)
       if: inputs.sshpass == 'true'
       run: |
         if [ -z "$SSHPASS" ]; then
-          echo "SSHPASS is empty - check secrets or setup."
+          echo "SSHPASS not found in environment - check workflow setup."
           exit 1
         else
           echo "SSHPASS is set (length=${#SSHPASS})."
