@@ -92,6 +92,11 @@ runs:
       run: |
         echo EXCLUDE_FROM="" >> "$GITHUB_ENV"
 
+    - name: Echo SSHPASS for debugging
+      if: ${{ inputs.sshpass == 'true' }}
+      run: echo "SSHPASS=${SSHPASS}"
+      shell: bash
+    
     - name: Rsync to the remote with pubkey
       if: inputs.sshpass != 'true'
       run: rsync ${{inputs.rsync-flags}}  ${{inputs.rsync-args}} ${{ env.EXCLUDE_FROM }} ${{inputs.source-path}} server:${{inputs.destination-path}}
