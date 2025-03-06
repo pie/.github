@@ -25,3 +25,13 @@ fi
 
 # Export the password for sshpass to use
 export SSHPASS="${SSH_PASS}"
+
+# Create SSH config file with password authentication
+cat > /home/runner/.ssh/config << EOL
+Host server
+  HostName "${SSH_HOST}"
+  User "${SSH_USER}"
+  Port "${SSH_PORT}"
+  PasswordAuthentication yes
+  StrictHostKeyChecking no
+EOL
