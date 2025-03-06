@@ -91,7 +91,7 @@ runs:
       # Only runs if any of the files does not exist
       run: |
         echo EXCLUDE_FROM="" >> "$GITHUB_ENV"
-   - name: Export SSH password
+    - name: Export SSH password
       if: ${{ inputs.sshpass == 'true' }}
       run: echo "SSHPASS=${{ inputs.ssh-pass }}" >> $GITHUB_ENV
       shell: bash
