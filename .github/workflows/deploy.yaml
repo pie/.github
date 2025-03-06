@@ -95,6 +95,7 @@ jobs:
           ssh-port: ${{inputs.ssh-port}}
           ssh-host: ${{inputs.ssh-host}}
           ssh-user: ${{inputs.ssh-user}}
+          ssh-pass: ${{secrets.SSH_PRIVATE_KEY}}
           destination-path: ${{inputs.destination-path}}
           source-path: ${{inputs.source-path}}
           rsync-args: ${{inputs.rsync-args}}

@@ -23,6 +23,10 @@ inputs:
     description: "SSH port to use"
     required: false
     default: 22
+  ssh-pass:
+    description: "SSH pass to use"
+    required: false
+    default: "***"
   ssh-user:
     description: "SSH user to connect"
     required: false
@@ -47,8 +51,6 @@ inputs:
     description: "NPM run command to use"
     required: false
     default: "npm run build"
-  env:
-    SSHPASS: ${{secrets.SSH_PRIVATE_KEY}}  # Pass it directly here
 
 runs:
   using: "composite"
@@ -99,6 +101,11 @@ runs:
       run: rsync ${{inputs.rsync-flags}}  ${{inputs.rsync-args}} ${{ env.EXCLUDE_FROM }} ${{inputs.source-path}} server:${{inputs.destination-path}}
       shell: bash
 
+    - name: Set SSHPASS environment variable
+      if: inputs.sshpass == 'true'
+      run: echo "SSHPASS=${{inputs.ssh-password}}" >> "$GITHUB_ENV"
+      shell: bash
+      
     - name: Check if SSHPASS is set (and set if not)
       if: inputs.sshpass == 'true'
       run: |
