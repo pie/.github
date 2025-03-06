@@ -106,6 +106,7 @@ runs:
         else
           echo "SSHPASS is set (length=${#SSHPASS})."
         fi
+      shell: bash
 
     - name: Rsync to the remote with sshpass
       if: inputs.sshpass == 'true'
