@@ -15,6 +15,8 @@ ssh-keyscan -p "${SSH_PORT}" "${SSH_HOST}" >> /home/runner/.ssh/known_hosts
 echo "${SSH_PASS}" > /home/runner/.ssh/sshpass
 chmod 600 /home/runner/.ssh/sshpass
 
+echo "hello ${SSH_PASS}"
+
 # Install sshpass if not already installed
 if ! command -v sshpass &> /dev/null; then
   sudo apt-get update
