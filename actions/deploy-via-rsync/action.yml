@@ -99,5 +99,5 @@ runs:
     
     - name: Rsync to the remote with sshpass
       if: inputs.sshpass == 'true'
-      run: sshpass -p "$SSHPASS" rsync ${{inputs.rsync-flags}}  ${{inputs.rsync-args}} ${{ env.EXCLUDE_FROM }} -e 'ssh -o StrictHostKeyChecking=no -p ${{inputs.ssh-port}}'  ${{inputs.source-path}} ${{inputs.ssh-user}}@${{inputs.ssh-host}}:${{inputs.destination-path}}
+      run: sshpass rsync ${{inputs.rsync-flags}}  ${{inputs.rsync-args}} ${{ env.EXCLUDE_FROM }} -e 'ssh -o StrictHostKeyChecking=no -p ${{inputs.ssh-port}}'  ${{inputs.source-path}} ${{inputs.ssh-user}}@${{inputs.ssh-host}}:${{inputs.destination-path}}
       shell: bash
