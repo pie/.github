@@ -91,15 +91,16 @@ runs:
       # Only runs if any of the files does not exist
       run: |
         echo EXCLUDE_FROM="" >> "$GITHUB_ENV"
-    - name: Export SSH password
-      if: ${{ inputs.sshpass == 'true' }}
-      run: echo "SSHPASS=${{ inputs.ssh-pass }}" >> $GITHUB_ENV
-      shell: bash
 
-    - name: Echo SSHPASS for debugging
-      if: ${{ inputs.sshpass == 'true' }}
-      run: echo "SSHPASS=${SSHPASS}"
-      shell: bash
+    - name: Check if SSHPASS is set
+      run: |
+        if [ -z "$SSHPASS" ]; then
+          echo "SSHPASS is empty - check secrets or setup."
+          exit 1
+        else
+          echo "SSHPASS is set (length=${#SSHPASS})."
+        fi
+
     
     - name: Rsync to the remote with pubkey
       if: inputs.sshpass != 'true'
