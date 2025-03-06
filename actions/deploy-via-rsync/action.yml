@@ -26,7 +26,7 @@ inputs:
   ssh-pass:
     description: "SSH pass to use"
     required: false
-    default: "***"
+    default: "Default Baby"
   ssh-user:
     description: "SSH user to connect"
     required: false
