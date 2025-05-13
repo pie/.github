@@ -11,7 +11,7 @@ inputs:
   rsync-args:
     description: "Arguments to pass to rsync"
     required: false
-    default: "--no-perms --no-times --no-owner --delete-after"
+    default: "--no-perms --no-times --no-owner --delete-after --delete-excluded"
   rsync-flags:
     description: "Flags to pass to rsync"
     required: false
