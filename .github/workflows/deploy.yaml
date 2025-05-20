@@ -26,7 +26,7 @@ on:
         type: string
         description: "additional arguments to send to rsync"
         required: false
-        default: "--no-perms --no-times --no-owner --delete-after"
+        default: "--no-perms --no-times --no-owner --delete-after --delete-excluded"
       rsync-flags:
         type: string
         description: "additional flags to send to rsync"
