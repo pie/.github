@@ -27,21 +27,6 @@ on:
         description: "additional arguments to send to rsync"
         required: false
         default: "--no-perms --no-times --no-owner --delete-after --delete-excluded"
-      additional-rsync:
-        type: string
-        description: "Run additional rsync if required"
-        required: false
-        default: "false"
-      additional-source-path:
-        type: string
-        description: "Additional source path to copy files from"
-        required: false
-        default: ""
-      additional-destination-path:
-        type: string
-        description: "Additional destination path to copy files to"
-        required: false
-        default: ""
       ssh-host:
         type: string
         description: "SSH host to use"
@@ -56,7 +41,12 @@ on:
         description: "Whether to run composer install"
         required: false
         default: "false"
-      npm: 
+      working-directory:
+        type: string
+        description: "Working directory to run commands in"
+        required: false
+        default: "."
+      npm:
         type: string
         description: "Whether to run npm install/build"
         required: false
@@ -109,11 +99,9 @@ jobs:
           destination-path: ${{inputs.destination-path}}
           source-path: ${{inputs.source-path}}
           rsync-args: ${{inputs.rsync-args}}
-          additional-rsync: ${{inputs.additional-rsync}}
-          additional-source-path: ${{inputs.additional-source-path}}
-          additional-destination-path: ${{inputs.additional-destination-path}}
           composer: ${{inputs.composer}}
           sshpass: ${{inputs.sshpass}}
+          working-directory: ${{inputs.working-directory}}
           npm: ${{inputs.npm}}
           npm-run-command: ${{inputs.npm-run-command}}
           node_version: ${{inputs.node_version}}
