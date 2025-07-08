@@ -16,6 +16,18 @@ inputs:
     description: "Flags to pass to rsync"
     required: false
     default: "-aqP"
+  additional-rsync:
+    description: "Run additional rsync if required"
+    required: false
+    default: "false"
+  additional-source-path:
+    description: "Additional source path to copy files from"
+    required: false
+    default: ""
+  additional-destination-path:
+    description: "Additional destination path to copy files to"
+    required: false
+    default: ""
   ssh-host:
     description: "SSH host to use"
     required: true
@@ -120,4 +132,14 @@ runs:
     - name: Rsync to the remote with sshpass
       if: inputs.sshpass == 'true'
       run: sshpass -e rsync ${{inputs.rsync-flags}}  ${{inputs.rsync-args}} ${{ env.EXCLUDE_FROM }} -e 'ssh -o StrictHostKeyChecking=no -p ${{inputs.ssh-port}}'  ${{inputs.source-path}} ${{inputs.ssh-user}}@${{inputs.ssh-host}}:${{inputs.destination-path}}
+      shell: bash
+
+    - name: Run additional rsync if required
+      if: inputs.additional-rsync == 'true' && inputs.sshpass != 'true'
+      run: rsync ${{inputs.rsync-flags}}  ${{inputs.rsync-args}} ${{ env.EXCLUDE_FROM }} ${{inputs.additional-source-path}} server:${{inputs.additional-destination-path}}
+      shell: bash
+
+    - name: Run additional rsync if required
+      if: inputs.additional-rsync == 'true' && inputs.sshpass == 'true'
+      run: sshpass -e rsync ${{inputs.rsync-flags}}  ${{inputs.rsync-args}} ${{ env.EXCLUDE_FROM }} -e 'ssh -o StrictHostKeyChecking=no -p ${{inputs.ssh-port}}'  ${{inputs.additional-source-path}} ${{inputs.ssh-user}}@${{inputs.ssh-host}}:${{inputs.additional-destination-path}}
       shell: bash
