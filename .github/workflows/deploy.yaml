@@ -27,11 +27,21 @@ on:
         description: "additional arguments to send to rsync"
         required: false
         default: "--no-perms --no-times --no-owner --delete-after --delete-excluded"
-      rsync-flags:
+      additional-rsync:
         type: string
-        description: "additional flags to send to rsync"
+        description: "Run additional rsync if required"
         required: false
-        default: "-avP"
+        default: "false"
+      additional-source-path:
+        type: string
+        description: "Additional source path to copy files from"
+        required: false
+        default: "."
+      additional-destination-path:
+        type: string
+        description: "Additional destination path to copy files to"
+        required: false
+        default: "."
       ssh-host:
         type: string
         description: "SSH host to use"
@@ -99,6 +109,9 @@ jobs:
           destination-path: ${{inputs.destination-path}}
           source-path: ${{inputs.source-path}}
           rsync-args: ${{inputs.rsync-args}}
+          additional-rsync: ${{inputs.additional-rsync}}
+          additional-source-path: ${{inputs.additional-source-path}}
+          additional-destination-path: ${{inputs.additional-destination-path}}
           composer: ${{inputs.composer}}
           sshpass: ${{inputs.sshpass}}
           npm: ${{inputs.npm}}
