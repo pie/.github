@@ -36,12 +36,12 @@ on:
         type: string
         description: "Additional source path to copy files from"
         required: false
-        default: "."
+        default: ""
       additional-destination-path:
         type: string
         description: "Additional destination path to copy files to"
         required: false
-        default: "."
+        default: ""
       ssh-host:
         type: string
         description: "SSH host to use"

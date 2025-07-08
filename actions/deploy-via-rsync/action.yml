@@ -23,11 +23,11 @@ inputs:
   additional-source-path:
     description: "Additional source path to copy files from"
     required: false
-    default: "."
+    default: ""
   additional-destination-path:
     description: "Additional destination path to copy files to"
     required: false
-    default: "."
+    default: ""
   ssh-host:
     description: "SSH host to use"
     required: true
