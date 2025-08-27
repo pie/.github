@@ -35,10 +35,10 @@ inputs:
     description: "Run composer install"
     required: false
     default: "false"
-  composer-run-command:
-    description: "Composer run command to use"
+  composer-args:
+    description: "Additional arguments to pass to composer"
     required: false
-    default: "install"
+    default: "--no-dev --no-interaction --no-progress --optimize-autoloader --prefer-dist"
   sshpass:
     description: "Connect using SSH Pass instead of Key"
     required: false
@@ -66,8 +66,8 @@ runs:
       if: ${{inputs.composer == 'true' }}
       uses: php-actions/composer@v6
       with:
-        command: ${{inputs.composer-run-command}}
-        args: --no-dev --no-interaction --no-progress --optimize-autoloader --prefer-dist
+        command: install
+        args: ${{inputs.composer-args}}
         
     - name: Install Node Dependencies if required
       if: ${{inputs.npm == 'true' }}

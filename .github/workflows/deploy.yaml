@@ -46,11 +46,11 @@ on:
         description: "Whether to run composer install"
         required: false
         default: "false"
-      composer-run-command:
+      composer-args:
         type: string
-        description: "Composer run command to use"
+        description: "Additional arguments to pass to composer"
         required: false
-        default: "install"
+        default: "--no-dev --no-interaction --no-progress --optimize-autoloader --prefer-dist"
       npm: 
         type: string
         description: "Whether to run npm install/build"
@@ -105,7 +105,7 @@ jobs:
           source-path: ${{inputs.source-path}}
           rsync-args: ${{inputs.rsync-args}}
           composer: ${{inputs.composer}}
-          composer-run-command: ${{inputs.composer-run-command}}
+          composer-args: ${{inputs.composer-args}}
           sshpass: ${{inputs.sshpass}}
           npm: ${{inputs.npm}}
           npm-run-command: ${{inputs.npm-run-command}}

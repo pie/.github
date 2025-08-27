@@ -25,7 +25,7 @@ This workflow deploys to a remote server using rsync.
 - `rsync-args`: Additional arguments to pass to rsync. Optional, default is `--no-perms --no-times --no-owner --delete-after`.
 - `rsync-flags`: Flags to pass to the rsync command. Optional, default is `-aqP`.
 - `composer`: boolean flag if a composer install is required.  Optional, defaults to `false`.
-- `composer-run-command`: Commands required to run with composer. Optional, defaults to `install`.
+- `composer-args`: Additional arguments to pass to composer. Optional, default is `--no-dev --no-interaction --no-progress --optimize-autoloader --prefer-dist`.
 - `npm`: boolean flag if an npm install is required. Optional, defaults to `false`.
 - `node_version`: Version of Node required for the build. Optional, defaults to `18`.
 - `npm-run-command`: Commands required to run after npm install. Optional, defaults to `npm run build`.
