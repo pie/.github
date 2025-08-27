@@ -11,7 +11,7 @@ inputs:
   rsync-args:
     description: "Arguments to pass to rsync"
     required: false
-    default: "--no-perms --no-times --no-owner --delete-after"
+    default: "--no-perms --no-times --no-owner --delete-after --delete-excluded"
   rsync-flags:
     description: "Flags to pass to rsync"
     required: false
@@ -43,6 +43,10 @@ inputs:
     description: "Connect using SSH Pass instead of Key"
     required: false
     default: "false"
+  working-directory:
+    description: "Working directory to run commands in"
+    required: false
+    default: "."
   npm:
     description: "Run npm install and build"
     required: false
@@ -77,7 +81,7 @@ runs:
 
     - name: Install dependencies and build
       if: ${{inputs.npm == 'true' }}
-      run: npm install && ${{inputs.npm-run-command}}
+      run: cd ${{inputs.working-directory}} && npm install && ${{inputs.npm-run-command}}
       shell: bash
 
     - name: Check for ignore file

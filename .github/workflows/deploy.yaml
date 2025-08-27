@@ -26,12 +26,7 @@ on:
         type: string
         description: "additional arguments to send to rsync"
         required: false
-        default: "--no-perms --no-times --no-owner --delete-after"
-      rsync-flags:
-        type: string
-        description: "additional flags to send to rsync"
-        required: false
-        default: "-avP"
+        default: "--no-perms --no-times --no-owner --delete-after --delete-excluded"
       ssh-host:
         type: string
         description: "SSH host to use"
@@ -51,7 +46,12 @@ on:
         description: "Additional arguments to pass to composer"
         required: false
         default: "--no-dev --no-interaction --no-progress --optimize-autoloader --prefer-dist"
-      npm: 
+      working-directory:
+        type: string
+        description: "Working directory to run commands in"
+        required: false
+        default: "."
+      npm:
         type: string
         description: "Whether to run npm install/build"
         required: false
@@ -107,6 +107,7 @@ jobs:
           composer: ${{inputs.composer}}
           composer-args: ${{inputs.composer-args}}
           sshpass: ${{inputs.sshpass}}
+          working-directory: ${{inputs.working-directory}}
           npm: ${{inputs.npm}}
           npm-run-command: ${{inputs.npm-run-command}}
           node_version: ${{inputs.node_version}}
