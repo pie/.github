@@ -72,6 +72,7 @@ runs:
       with:
         command: install
         args: ${{inputs.composer-args}}
+        working_dir: ${{inputs.working-directory}}
         
     - name: Install Node Dependencies if required
       if: ${{inputs.npm == 'true' }}
