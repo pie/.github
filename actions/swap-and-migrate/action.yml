@@ -1,0 +1,28 @@
+name: Swap and Migrate
+description: "Performs maintenance mode, database migrations, and symlink swap atomically in a single SSH session"
+
+inputs:
+  swap-script:
+    description: "Absolute path to the project's swap.sh on the remote server"
+    required: true
+  wp-root:
+    description: "Absolute path to the WordPress root on the remote server"
+    required: true
+  git-sha:
+    description: "Git commit SHA for the current deployment"
+    required: true
+  repo-name:
+    description: "Repository name used to derive the migrations tracking table name"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Run atomic swap and migrations
+      shell: bash
+      run: |
+        ssh server "env \
+          WP_ROOT='${{ inputs.wp-root }}' \
+          GIT_SHA='${{ inputs.git-sha }}' \
+          REPO_NAME='${{ inputs.repo-name }}' \
+          bash '${{ inputs.swap-script }}'"

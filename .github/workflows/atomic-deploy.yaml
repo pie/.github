@@ -49,3 +49,4 @@ jobs:
           swap-script: ${{inputs.swap-script}}
           wp-root: ${{inputs.wp-root}}
           git-sha: ${{github.sha}}
+          repo-name: ${{github.event.repository.name}}
