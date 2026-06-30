@@ -41,7 +41,7 @@ runs:
   using: "composite"
   steps:
     - name: Check out the Repo
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Install Composer Dependencies if required
       if: ${{inputs.composer == 'true' }}

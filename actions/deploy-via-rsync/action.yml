@@ -64,7 +64,7 @@ runs:
   using: "composite"
   steps:
     - name: Check out the Repo
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Install Composer Dependencies if required
       if: ${{inputs.composer == 'true' }}
@@ -85,25 +85,17 @@ runs:
       run: cd ${{inputs.working-directory}} && npm install && ${{inputs.npm-run-command}}
       shell: bash
 
+    # Replaces andstor/file-existence-action@v2 which targeted Node.js 20 (deprecated).
+    # Checks if a .rsyncignore file exists in the repo root and sets the EXCLUDE_FROM
+    # env variable accordingly — either pointing rsync at the ignore file, or leaving it empty.
     - name: Check for ignore file
-      id: check_files
-      uses: andstor/file-existence-action@v2
-      with:
-        files: ".rsyncignore"
-
-    - name: File exists
-      if: steps.check_files.outputs.files_exists == 'true'
       shell: bash
-      # Only runs if all of the files exists
       run: |
-        echo EXCLUDE_FROM=" --exclude-from=.rsyncignore " >> "$GITHUB_ENV"
-
-    - name: File does not exist
-      if: steps.check_files.outputs.files_exists != 'true'
-      shell: bash
-      # Only runs if any of the files does not exist
-      run: |
-        echo EXCLUDE_FROM="" >> "$GITHUB_ENV"
+        if [ -f ".rsyncignore" ]; then
+          echo EXCLUDE_FROM=" --exclude-from=.rsyncignore " >> "$GITHUB_ENV"
+        else
+          echo EXCLUDE_FROM="" >> "$GITHUB_ENV"
+        fi
     
     - name: Rsync to the remote with pubkey
       if: inputs.sshpass != 'true'
