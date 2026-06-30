@@ -71,8 +71,9 @@ for SQL_FILE in "${PENDING[@]}"; do
     sed "s/${CURRENT_PREFIX}/${NEW_PREFIX}/g" "$SQL_FILE" \
         | wp db query --path="$WP_ROOT"
 
+    SAFE_FILENAME=$(printf '%s' "$FILENAME" | sed "s/'/''/g")
     wp db query \
-        "INSERT INTO \`$MIGRATIONS_TABLE\` (filename) VALUES ('$FILENAME')" \
+        "INSERT INTO \`$MIGRATIONS_TABLE\` (filename) VALUES ('$SAFE_FILENAME')" \
         --path="$WP_ROOT"
 
     log "  Applied: $FILENAME"
