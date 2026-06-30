@@ -38,13 +38,18 @@ runs:
       id: swap
       continue-on-error: true
       shell: bash
+      env:
+        WP_ROOT: ${{ inputs.wp-root }}
+        GIT_SHA: ${{ inputs.git-sha }}
+        REPO_NAME: ${{ inputs.repo-name }}
+        SWAP_SCRIPT: ${{ inputs.swap-script }}
       run: |
         set +e
-        ssh server "env \
-          WP_ROOT='${{ inputs.wp-root }}' \
-          GIT_SHA='${{ inputs.git-sha }}' \
-          REPO_NAME='${{ inputs.repo-name }}' \
-          bash '${{ inputs.swap-script }}'"
+        WP_ROOT_Q=$(printf '%q' "$WP_ROOT")
+        GIT_SHA_Q=$(printf '%q' "$GIT_SHA")
+        REPO_NAME_Q=$(printf '%q' "$REPO_NAME")
+        SWAP_SCRIPT_Q=$(printf '%q' "$SWAP_SCRIPT")
+        ssh server "env WP_ROOT=$WP_ROOT_Q GIT_SHA=$GIT_SHA_Q REPO_NAME=$REPO_NAME_Q bash $SWAP_SCRIPT_Q"
         SSH_EXIT=$?
         set -e
         echo "ssh_exit=${SSH_EXIT}" >> "$GITHUB_OUTPUT"
