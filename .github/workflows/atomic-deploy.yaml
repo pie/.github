@@ -25,6 +25,11 @@ on:
         type: string
         description: "Newline-separated list of components to deploy, one per line in type:name format (e.g. plugins:my-plugin)"
         required: true
+      releases-dir:
+        type: string
+        description: "Absolute path to the releases directory on the server. Defaults to a 'releases' sibling of wp-root when not set."
+        required: false
+        default: ""
     secrets:
       SSH_PRIVATE_KEY:
         description: "SSH private key"
@@ -66,6 +71,7 @@ jobs:
           git-sha: ${{github.sha}}
           repo-name: ${{github.event.repository.name}}
           components: ${{inputs.components}}
+          releases-dir: ${{inputs.releases-dir}}
           notify-email: ${{secrets.NOTIFY_EMAIL || 'uptime_alerts-aaaaabagrbjrarifmw25mquney@piecode.slack.com'}}
           smtp-server: ${{secrets.SMTP_SERVER}}
           smtp-username: ${{secrets.SMTP_USERNAME}}

@@ -17,7 +17,7 @@ set -euo pipefail
 # ==============================================================================
 
 SHORT_SHA="${GIT_SHA:0:8}"
-RELEASES_DIR="$(dirname "$WP_ROOT")/releases"
+RELEASES_DIR="${RELEASES_DIR:-$(dirname "$WP_ROOT")/releases}"
 NEW_RELEASE_DIR="$RELEASES_DIR/$GIT_SHA"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MIGRATE_SCRIPT="$SCRIPT_DIR/migrate.sh"
@@ -168,7 +168,7 @@ if [ "$HAS_MIGRATIONS" = true ]; then
     wp maintenance-mode activate --path="$WP_ROOT"
     MAINTENANCE_ACTIVE=true
 
-    BACKUP_DIR="$(dirname "$WP_ROOT")/db-backups"
+    BACKUP_DIR="$(dirname "$RELEASES_DIR")/db-backups"
     mkdir -p "$BACKUP_DIR"
     BACKUP_FILE="$BACKUP_DIR/pre_deploy_${SHORT_SHA}_$(date +%Y%m%d%H%M%S).sql"
     log "Exporting database backup to $BACKUP_FILE"
