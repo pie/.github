@@ -42,6 +42,10 @@ on:
         description: "Override recipient email (defaults to #uptime_alerts Slack channel)"
         required: false
 
+concurrency:
+  group: atomic-deploy-${{ inputs.ssh-host }}-${{ inputs.wp-root }}
+  cancel-in-progress: false
+
 jobs:
   atomic_deploy:
     runs-on: ubuntu-latest
