@@ -18,7 +18,10 @@ Rsync jobs deploy each component to `~/site/releases/{sha}/` on the server. Once
 4. Re-points symlinks to the new release (bootstrapping to the release structure automatically on first run)
 5. Prunes releases older than 1 prior
 
-If anything fails after maintenance mode is activated, the script exits and maintenance mode stays on — the site remains down rather than returning in a broken state. A failure notification is sent to `#uptime_alerts`.
+Failures are handled based on how far the deploy got:
+
+- **Before `wp-config.php` or symlinks change** — maintenance mode is deactivated automatically and the site recovers on the previous version. A notification is sent with subject *Deploy failed, site recovered*.
+- **After either live change begins** — maintenance mode stays on to prevent the site returning in a broken state. A notification is sent with subject *URGENT: Site in maintenance mode*, including instructions for manual verification.
 
 **Server directory structure:**
 
@@ -117,7 +120,7 @@ ln -sfn ${PRIOR}my-theme  $WP_ROOT/wp-content/themes/my-theme
 wp cache flush --path="$WP_ROOT"
 ```
 
-If the failed deploy included database migrations and maintenance mode is still active, check `wp config get table_prefix --path="$WP_ROOT"` before restoring traffic — the prefix switch may not have completed.
+If the failure notification subject says *URGENT: Site in maintenance mode*, the deploy failed after live changes began. Before deactivating maintenance mode, verify the table prefix and symlinks are in a consistent state — the notification email includes the exact commands to run.
 
 ---
 
