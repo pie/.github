@@ -1,0 +1,28 @@
+name: Run Migrations
+description: "Executes pending database migrations on the remote server via SSH"
+
+inputs:
+  migrate-script:
+    description: "Absolute path to the project's migrate.sh on the remote server"
+    required: true
+  wp-root:
+    description: "Absolute path to the WordPress root on the remote server"
+    required: true
+  repo-name:
+    description: "Repository name used to derive the migrations tracking table name"
+    required: true
+  git-sha:
+    description: "Git commit SHA for the current deployment"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Run database migrations
+      shell: bash
+      run: |
+        ssh server "env \
+          WP_ROOT='${{ inputs.wp-root }}' \
+          GIT_SHA='${{ inputs.git-sha }}' \
+          REPO_NAME='${{ inputs.repo-name }}' \
+          bash '${{ inputs.migrate-script }}'"
