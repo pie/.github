@@ -6,7 +6,7 @@ This repository contains reusable workflows and composite actions for managing r
 
 ### Atomic Deploy
 
-Deploys components to a release directory keyed by the git commit SHA, then swaps symlinks and runs any pending database migrations. When migrations are pending, the database work and symlink swap are performed inside a maintenance window. When there are no pending migrations, symlinks are swapped with no downtime. Supports instant rollback by re-pointing symlinks to the prior release.
+Deploys components to a release directory keyed by the git commit SHA, then swaps symlinks and runs any pending database migrations. When migrations are pending, the database work and symlink swap are performed inside a maintenance window. When there are no pending migrations, symlinks are swapped with no downtime. Supports rollback by re-pointing symlinks to the prior release; when migrations ran, the old prefix tables are dropped during deployment, so a full database rollback requires restoring from the pre-deploy backup rather than re-pointing symlinks alone.
 
 **How it works:**
 
@@ -108,7 +108,7 @@ jobs:
 
 **Rollback:**
 
-Re-point each symlink to the prior release on the server, then flush the cache:
+If no migrations ran, re-pointing symlinks to the prior release is sufficient:
 
 ```bash
 WP_ROOT=/home/piecode/site/public_html
@@ -119,6 +119,8 @@ ln -sfn ${PRIOR}my-theme  $WP_ROOT/wp-content/themes/my-theme
 
 wp cache flush --path="$WP_ROOT"
 ```
+
+If migrations ran, the old prefix tables were dropped after the prefix switch — a symlink-only rollback leaves the old code running against the migrated schema, which may or may not be compatible. A full rollback requires restoring the database from the pre-deploy backup in `db-backups/` and reverting `table_prefix` in `wp-config.php` to the previous value.
 
 If the failure notification subject says *URGENT: Site in maintenance mode*, the deploy failed after live changes began. Before deactivating maintenance mode, verify the table prefix and symlinks are in a consistent state — the notification email includes the exact commands to run.
 
