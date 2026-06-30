@@ -199,6 +199,10 @@ if [ "$HAS_MIGRATIONS" = true ]; then
     NEW_PREFIX="$NEW_PREFIX" \
         bash "$MIGRATE_SCRIPT"
 
+    log "Updating usermeta keys and option names from '$CURRENT_PREFIX' to '$NEW_PREFIX'"
+    wp db query "UPDATE \`${NEW_PREFIX}usermeta\` SET meta_key = REPLACE(meta_key, '${CURRENT_PREFIX}', '${NEW_PREFIX}') WHERE LEFT(meta_key, CHAR_LENGTH('${CURRENT_PREFIX}')) = '${CURRENT_PREFIX}'" --path="$WP_ROOT"
+    wp db query "UPDATE \`${NEW_PREFIX}options\` SET option_name = REPLACE(option_name, '${CURRENT_PREFIX}', '${NEW_PREFIX}') WHERE LEFT(option_name, CHAR_LENGTH('${CURRENT_PREFIX}')) = '${CURRENT_PREFIX}'" --path="$WP_ROOT"
+
     # ------------------------------------------------------------------
     # Point of no return — wp-config.php and symlinks are about to change.
     # Any failure from here requires manual verification before the site
