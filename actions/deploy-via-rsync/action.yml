@@ -85,6 +85,9 @@ runs:
       run: cd ${{inputs.working-directory}} && npm install && ${{inputs.npm-run-command}}
       shell: bash
 
+    # Replaces andstor/file-existence-action@v2 which targeted Node.js 20 (deprecated).
+    # Checks if a .rsyncignore file exists in the repo root and sets the EXCLUDE_FROM
+    # env variable accordingly — either pointing rsync at the ignore file, or leaving it empty.
     - name: Check for ignore file
       shell: bash
       run: |
