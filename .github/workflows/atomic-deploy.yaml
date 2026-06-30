@@ -56,6 +56,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
+      - name: Compute short SHA
+        id: sha
+        shell: bash
+        run: echo "short_sha=${GITHUB_SHA:0:8}" >> $GITHUB_OUTPUT
+
       - uses: pie/.github/actions/add-ssh-config@feature/add-symlink-and-sql-flows
         name: Add SSH key to runner
         with:
@@ -68,7 +73,7 @@ jobs:
         name: Run atomic swap and migrations
         with:
           wp-root: ${{inputs.wp-root}}
-          git-sha: ${{github.sha}}
+          git-sha: ${{ steps.sha.outputs.short_sha }}
           repo-name: ${{github.event.repository.name}}
           components: ${{inputs.components}}
           releases-dir: ${{inputs.releases-dir}}
