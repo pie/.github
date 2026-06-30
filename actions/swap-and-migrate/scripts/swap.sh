@@ -211,10 +211,14 @@ if [ "$HAS_MIGRATIONS" = true ]; then
     wp config set table_prefix "$NEW_PREFIX" --path="$WP_ROOT"
 
     log "Dropping old tables with prefix '$CURRENT_PREFIX'"
-    while IFS= read -r TABLE; do
-        [ -z "$TABLE" ] && continue
-        wp db query "DROP TABLE IF EXISTS \`$TABLE\`" --path="$WP_ROOT"
-    done <<< "$TABLES"
+    {
+        echo "SET FOREIGN_KEY_CHECKS=0;"
+        while IFS= read -r TABLE; do
+            [ -z "$TABLE" ] && continue
+            echo "DROP TABLE IF EXISTS \`$TABLE\`;"
+        done <<< "$TABLES"
+        echo "SET FOREIGN_KEY_CHECKS=1;"
+    } | wp db query --path="$WP_ROOT"
 
     log "Database migrations complete"
 fi
