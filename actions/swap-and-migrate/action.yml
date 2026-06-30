@@ -58,7 +58,7 @@ runs:
     # Exit code 1: failed before live changes — maintenance mode was deactivated,
     # site is running on the previous version.
     - name: Send failure notification — site recovered
-      if: steps.swap.outcome == 'failure' && steps.swap.outputs.ssh_exit != '2' && inputs.smtp-server != ''
+      if: steps.swap.outcome == 'failure' && steps.swap.outputs.ssh_exit == '1' && inputs.smtp-server != '' && inputs.notify-email != ''
       uses: dawidd6/action-send-mail@v3
       with:
         server_address: ${{ inputs.smtp-server }}
@@ -80,7 +80,7 @@ runs:
     # Exit code 2: failed after live changes began — site is in maintenance mode,
     # wp-config.php or symlinks may be in a partially-updated state.
     - name: Send urgent notification — site in maintenance mode
-      if: steps.swap.outcome == 'failure' && steps.swap.outputs.ssh_exit == '2' && inputs.smtp-server != ''
+      if: steps.swap.outcome == 'failure' && steps.swap.outputs.ssh_exit == '2' && inputs.smtp-server != '' && inputs.notify-email != ''
       uses: dawidd6/action-send-mail@v3
       with:
         server_address: ${{ inputs.smtp-server }}
