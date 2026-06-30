@@ -34,6 +34,21 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Validate inputs
+      shell: bash
+      env:
+        WP_ROOT: ${{ inputs.wp-root }}
+        SWAP_SCRIPT: ${{ inputs.swap-script }}
+      run: |
+        if [[ "$WP_ROOT" == '~'* ]]; then
+          echo "Error: wp-root must be an absolute path. Replace ~ with the full home directory path (e.g. /home/piecode/site/public_html)." >&2
+          exit 1
+        fi
+        if [[ "$SWAP_SCRIPT" == '~'* ]]; then
+          echo "Error: swap-script must be an absolute path. Replace ~ with the full home directory path (e.g. /home/piecode/site/releases/\$SHA/migrations/swap.sh)." >&2
+          exit 1
+        fi
+
     - name: Run atomic swap and migrations
       id: swap
       continue-on-error: true

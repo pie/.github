@@ -45,8 +45,8 @@ Failures are handled based on how far the deploy got:
 **Inputs:**
 
 - `ssh-host`: SSH host. Required.
-- `swap-script`: Absolute path to `migrations/swap.sh` on the server. Required.
-- `wp-root`: Absolute path to the WordPress root on the server. Required.
+- `swap-script`: Absolute path to `migrations/swap.sh` on the server. Required. Must not start with `~`.
+- `wp-root`: Absolute path to the WordPress root on the server. Required. Must not start with `~`.
 - `ssh-port`: SSH port. Optional, default is `22`.
 - `ssh-user`: SSH user. Optional, default is `piecode`.
 
@@ -71,7 +71,7 @@ jobs:
     uses: pie/.github/.github/workflows/deploy.yaml@main
     with:
       ssh-host: example.com
-      destination-path: ~/site/releases/${{ github.sha }}/my-plugin
+      destination-path: /home/piecode/site/releases/${{ github.sha }}/my-plugin
       npm: true
     secrets:
       SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
@@ -80,7 +80,7 @@ jobs:
     uses: pie/.github/.github/workflows/deploy.yaml@main
     with:
       ssh-host: example.com
-      destination-path: ~/site/releases/${{ github.sha }}/my-theme
+      destination-path: /home/piecode/site/releases/${{ github.sha }}/my-theme
     secrets:
       SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
 
@@ -88,7 +88,7 @@ jobs:
     uses: pie/.github/.github/workflows/deploy.yaml@main
     with:
       ssh-host: example.com
-      destination-path: ~/site/releases/${{ github.sha }}/migrations
+      destination-path: /home/piecode/site/releases/${{ github.sha }}/migrations
     secrets:
       SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
 
@@ -97,8 +97,8 @@ jobs:
     uses: pie/.github/.github/workflows/atomic-deploy.yaml@main
     with:
       ssh-host: example.com
-      swap-script: ~/site/releases/${{ github.sha }}/migrations/swap.sh
-      wp-root: ~/site/public_html
+      swap-script: /home/piecode/site/releases/${{ github.sha }}/migrations/swap.sh
+      wp-root: /home/piecode/site/public_html
     secrets:
       SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
       SMTP_SERVER: ${{secrets.SMTP_SERVER}}
@@ -111,8 +111,8 @@ jobs:
 Re-point each symlink to the prior release on the server, then flush the cache:
 
 ```bash
-WP_ROOT=~/site/public_html
-PRIOR=$(ls -dt ~/site/releases/*/ | sed -n '2p')
+WP_ROOT=/home/piecode/site/public_html
+PRIOR=$(ls -dt /home/piecode/site/releases/*/ | sed -n '2p')
 
 ln -sfn ${PRIOR}my-plugin $WP_ROOT/wp-content/plugins/my-plugin
 ln -sfn ${PRIOR}my-theme  $WP_ROOT/wp-content/themes/my-theme
