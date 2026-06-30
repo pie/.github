@@ -82,8 +82,8 @@ trap cleanup EXIT
 
 log "Atomic deploy starting — SHA: $GIT_SHA"
 
-if [[ "$WP_ROOT" == '~'* ]]; then
-    echo "ERROR: WP_ROOT must be an absolute path. Replace ~ with the full home directory path (e.g. /home/piecode/site/public_html)." >&2
+if [[ "$WP_ROOT" != '/'* ]]; then
+    echo "ERROR: WP_ROOT must be an absolute path starting with / (e.g. /home/piecode/site/public_html)." >&2
     exit 1
 fi
 
