@@ -5,9 +5,13 @@ set -euo pipefail
 # swap.sh — Atomic deploy: migrations + symlink swap
 #
 # Called remotely by the swap-and-migrate GitHub Action. Runs in a single SSH
-# session. set -euo pipefail means any failure exits immediately — if that
-# happens after maintenance mode is activated, the site stays down rather than
-# coming back up in a broken state.
+# session. set -euo pipefail means any failure exits immediately.
+#
+# Exit codes:
+#   0  — success
+#   1  — failed before any live changes; maintenance mode was deactivated
+#   2  — failed after live changes began; site is in maintenance mode —
+#         manual intervention required before deactivating
 #
 # Injected by the action:
 #   WP_ROOT      Absolute path to the WordPress root (e.g. ~/site/public_html)
@@ -40,14 +44,37 @@ MIGRATE_SCRIPT="$SCRIPT_DIR/migrate.sh"
 QUERIES_DIR="$SCRIPT_DIR/queries"
 MIGRATIONS_TABLE="$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g' | cut -c1-53)_migrations"
 HAS_MIGRATIONS=false
+MAINTENANCE_ACTIVE=false
+SAFE_TO_RECOVER=true
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 
-# Uses || true so a failed deactivate call never masks the real error
-maintenance_off() {
-    log "Disabling maintenance mode"
-    wp maintenance-mode deactivate --path="$WP_ROOT" || true
+# Fires on any non-zero exit via set -euo pipefail.
+#
+# If maintenance mode was never activated, nothing to do.
+# If activated and we haven't yet touched wp-config or symlinks, it is safe to
+# deactivate — the live site is unmodified. Exit 1.
+# If activated and live changes have begun (SAFE_TO_RECOVER=false), the site
+# must stay in maintenance mode until manually verified. Exit 2.
+cleanup() {
+    local EXIT_CODE=$?
+    [ $EXIT_CODE -eq 0 ] && return
+    if [ "$MAINTENANCE_ACTIVE" = true ]; then
+        if [ "$SAFE_TO_RECOVER" = true ]; then
+            log "Deploy failed before live changes — deactivating maintenance mode"
+            wp maintenance-mode deactivate --path="$WP_ROOT" || true
+            exit 1
+        else
+            log "ERROR: Deploy failed after live changes began — site is in maintenance mode"
+            log "ERROR: Before deactivating maintenance mode, verify:"
+            log "ERROR:   wp config get table_prefix --path=\"$WP_ROOT\""
+            log "ERROR:   ls -la $WP_ROOT/wp-content/plugins/ $WP_ROOT/wp-content/themes/"
+            exit 2
+        fi
+    fi
+    exit $EXIT_CODE
 }
+trap cleanup EXIT
 
 # ==============================================================================
 # Step 1: Pre-flight checks
@@ -97,15 +124,16 @@ fi
 # ==============================================================================
 # Step 3: Database migrations
 #
-# Maintenance mode is activated here. If anything fails from this point on,
-# set -euo pipefail exits the script and maintenance mode stays ON — the site
-# remains down rather than returning in a broken state.
+# Maintenance mode is activated here. Any failure at this point is still safe
+# to recover from — we haven't touched wp-config.php or symlinks yet.
+# The cleanup trap will deactivate maintenance mode and exit 1.
 # ==============================================================================
 
 if [ "$HAS_MIGRATIONS" = true ]; then
 
     log "Enabling maintenance mode"
     wp maintenance-mode activate --path="$WP_ROOT"
+    MAINTENANCE_ACTIVE=true
 
     BACKUP_DIR="$(dirname "$WP_ROOT")/db-backups"
     mkdir -p "$BACKUP_DIR"
@@ -136,6 +164,14 @@ if [ "$HAS_MIGRATIONS" = true ]; then
     CURRENT_PREFIX="$CURRENT_PREFIX" \
     NEW_PREFIX="$NEW_PREFIX" \
         bash "$MIGRATE_SCRIPT"
+
+    # ------------------------------------------------------------------
+    # Point of no return — wp-config.php and symlinks are about to change.
+    # Any failure from here requires manual verification before the site
+    # can safely come back up. The cleanup trap exits 2 if MAINTENANCE_ACTIVE
+    # is true and SAFE_TO_RECOVER is false.
+    # ------------------------------------------------------------------
+    SAFE_TO_RECOVER=false
 
     log "Switching wp-config.php table_prefix to '$NEW_PREFIX'"
     wp config set table_prefix "$NEW_PREFIX" --path="$WP_ROOT"
@@ -183,24 +219,33 @@ for COMPONENT in "${COMPONENTS[@]}"; do
 done
 
 # ==============================================================================
-# Step 5: Prune old releases — keep current + 1 prior
+# Step 5: Disable maintenance mode
+#
+# Done before pruning so the site comes back up even if cleanup fails.
+# MAINTENANCE_ACTIVE is set to false regardless — the cleanup trap must not
+# attempt a second deactivation after this point.
+# ==============================================================================
+
+if [ "$MAINTENANCE_ACTIVE" = true ]; then
+    log "Disabling maintenance mode"
+    if ! wp maintenance-mode deactivate --path="$WP_ROOT"; then
+        log "WARN: Failed to deactivate maintenance mode — run manually:"
+        log "WARN:   wp maintenance-mode deactivate --path=\"$WP_ROOT\""
+    fi
+    MAINTENANCE_ACTIVE=false
+fi
+
+# ==============================================================================
+# Step 6: Prune old releases — keep current + 1 prior
 # ==============================================================================
 
 log "Pruning old releases"
 
 while IFS= read -r OLD_RELEASE; do
     log "  Removing $OLD_RELEASE"
-    rm -rf "$OLD_RELEASE"
+    rm -rf "$OLD_RELEASE" || log "WARN: Could not remove $OLD_RELEASE — manual cleanup may be needed"
 done < <(find "$RELEASES_DIR" -maxdepth 1 -mindepth 1 -type d \
     ! -name "$GIT_SHA" ! -name "initial" \
     -printf '%T@ %p\n' | sort -rn | awk 'NR>1 {print $2}')
-
-# ==============================================================================
-# Step 6: Disable maintenance mode
-# ==============================================================================
-
-if [ "$HAS_MIGRATIONS" = true ]; then
-    maintenance_off
-fi
 
 log "Atomic deploy complete — $GIT_SHA is live"

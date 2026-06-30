@@ -35,16 +35,25 @@ runs:
   using: composite
   steps:
     - name: Run atomic swap and migrations
+      id: swap
+      continue-on-error: true
       shell: bash
       run: |
+        set +e
         ssh server "env \
           WP_ROOT='${{ inputs.wp-root }}' \
           GIT_SHA='${{ inputs.git-sha }}' \
           REPO_NAME='${{ inputs.repo-name }}' \
           bash '${{ inputs.swap-script }}'"
+        SSH_EXIT=$?
+        set -e
+        echo "ssh_exit=${SSH_EXIT}" >> "$GITHUB_OUTPUT"
+        exit $SSH_EXIT
 
-    - name: Send failure notification
-      if: failure() && inputs.smtp-server != ''
+    # Exit code 1: failed before live changes — maintenance mode was deactivated,
+    # site is running on the previous version.
+    - name: Send failure notification — site recovered
+      if: steps.swap.outcome == 'failure' && steps.swap.outputs.ssh_exit != '2' && inputs.smtp-server != ''
       uses: dawidd6/action-send-mail@v3
       with:
         server_address: ${{ inputs.smtp-server }}
@@ -54,11 +63,43 @@ runs:
         password: ${{ inputs.smtp-password }}
         to: ${{ inputs.notify-email }}
         from: GitHub Actions <noreply@pie.co.de>
-        subject: "Atomic deploy failed — ${{ github.repository }}"
+        subject: "Deploy failed, site recovered — ${{ github.repository }}"
         html_body: |
-          <h2>Atomic deploy failed</h2>
+          <h2>Deploy failed — site recovered</h2>
+          <p>The deploy failed before any live changes were made. Maintenance mode was deactivated automatically. The site is running on the previous version.</p>
+          <p><strong>Repository:</strong> ${{ github.repository }}<br>
+          <strong>SHA:</strong> ${{ inputs.git-sha }}<br>
+          <strong>Exit code:</strong> ${{ steps.swap.outputs.ssh_exit }}</p>
+          <p><a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View workflow run for full log</a></p>
+
+    # Exit code 2: failed after live changes began — site is in maintenance mode,
+    # wp-config.php or symlinks may be in a partially-updated state.
+    - name: Send urgent notification — site in maintenance mode
+      if: steps.swap.outcome == 'failure' && steps.swap.outputs.ssh_exit == '2' && inputs.smtp-server != ''
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: ${{ inputs.smtp-server }}
+        server_port: 465
+        secure: true
+        username: ${{ inputs.smtp-username }}
+        password: ${{ inputs.smtp-password }}
+        to: ${{ inputs.notify-email }}
+        from: GitHub Actions <noreply@pie.co.de>
+        subject: "URGENT: Site in maintenance mode — ${{ github.repository }}"
+        html_body: |
+          <h2>&#9888;&#65039; Urgent: site is in maintenance mode</h2>
+          <p>The deploy failed after live changes began. <strong>The site is currently in maintenance mode and requires manual intervention.</strong></p>
+          <p>Before deactivating maintenance mode, SSH into the server and verify:</p>
+          <ol>
+            <li>Check the active table prefix:<br><code>wp config get table_prefix --path="$WP_ROOT"</code></li>
+            <li>Check symlinks in wp-content point to a consistent release:<br><code>ls -la $WP_ROOT/wp-content/plugins/ $WP_ROOT/wp-content/themes/</code></li>
+          </ol>
+          <p>Once the state is confirmed safe, deactivate maintenance mode:<br><code>wp maintenance-mode deactivate --path="$WP_ROOT"</code></p>
           <p><strong>Repository:</strong> ${{ github.repository }}<br>
           <strong>SHA:</strong> ${{ inputs.git-sha }}</p>
-          <p><a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View workflow run</a></p>
-          <p><strong>&#9888;&#65039; Maintenance mode may still be active.</strong><br>
-          Verify the server manually before restoring traffic.</p>
+          <p><a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View workflow run for full log</a></p>
+
+    - name: Fail the job
+      if: steps.swap.outcome == 'failure'
+      shell: bash
+      run: exit 1
