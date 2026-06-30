@@ -1,4 +1,4 @@
-# Github Workflows for PIE.co.de
+# GitHub Workflows for PIE.co.de
 
 This repository contains reusable workflows and composite actions for managing repository deployment.
 
@@ -6,7 +6,7 @@ This repository contains reusable workflows and composite actions for managing r
 
 ### Atomic Deploy
 
-Deploys components to a release directory keyed by the git commit SHA, then atomically swaps symlinks and runs any pending database migrations in a single maintenance window. Supports instant rollback by re-pointing symlinks to the prior release.
+Deploys components to a release directory keyed by the git commit SHA, then swaps symlinks and runs any pending database migrations. When migrations are pending, the database work and symlink swap are performed inside a maintenance window. When there are no pending migrations, symlinks are swapped with no downtime. Supports instant rollback by re-pointing symlinks to the prior release.
 
 **How it works:**
 
