@@ -14,6 +14,22 @@ inputs:
   repo-name:
     description: "Repository name used to derive the migrations tracking table name"
     required: true
+  notify-email:
+    description: "Email address to notify on failure"
+    required: false
+    default: ""
+  smtp-server:
+    description: "SMTP server address"
+    required: false
+    default: ""
+  smtp-username:
+    description: "SMTP username"
+    required: false
+    default: ""
+  smtp-password:
+    description: "SMTP password"
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -26,3 +42,23 @@ runs:
           GIT_SHA='${{ inputs.git-sha }}' \
           REPO_NAME='${{ inputs.repo-name }}' \
           bash '${{ inputs.swap-script }}'"
+
+    - name: Send failure notification
+      if: failure() && inputs.smtp-server != ''
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: ${{ inputs.smtp-server }}
+        server_port: 465
+        secure: true
+        username: ${{ inputs.smtp-username }}
+        password: ${{ inputs.smtp-password }}
+        to: ${{ inputs.notify-email }}
+        from: GitHub Actions <noreply@pie.co.de>
+        subject: "Atomic deploy failed — ${{ github.repository }}"
+        html_body: |
+          <h2>Atomic deploy failed</h2>
+          <p><strong>Repository:</strong> ${{ github.repository }}<br>
+          <strong>SHA:</strong> ${{ inputs.git-sha }}</p>
+          <p><a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View workflow run</a></p>
+          <p><strong>&#9888;&#65039; Maintenance mode may still be active.</strong><br>
+          Verify the server manually before restoring traffic.</p>
