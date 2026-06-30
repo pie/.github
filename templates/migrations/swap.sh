@@ -281,6 +281,6 @@ while IFS= read -r OLD_RELEASE; do
     rm -rf "$OLD_RELEASE" || log "WARN: Could not remove $OLD_RELEASE — manual cleanup may be needed"
 done < <(find "$RELEASES_DIR" -maxdepth 1 -mindepth 1 -type d \
     ! -name "$GIT_SHA" ! -name "initial" \
-    -printf '%T@ %p\n' | sort -rn | awk 'NR>1 {print $2}')
+    -printf '%T@ %p\n' | sort -rn | tail -n +2 | cut -d' ' -f2-)
 
 log "Atomic deploy complete — $GIT_SHA is live"
