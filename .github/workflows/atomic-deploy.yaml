@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
-      - uses: pie/.github/actions/add-ssh-config@main
+      - uses: pie/.github/actions/add-ssh-config@feature/add-symlink-and-sql-flows
         name: Add SSH key to runner
         with:
           ssh-user: ${{inputs.ssh-user}}
@@ -59,7 +59,7 @@ jobs:
           ssh-host: ${{inputs.ssh-host}}
           ssh-key: ${{secrets.SSH_PRIVATE_KEY}}
 
-      - uses: pie/.github/actions/swap-and-migrate@main
+      - uses: pie/.github/actions/swap-and-migrate@feature/add-symlink-and-sql-flows
         name: Run atomic swap and migrations
         with:
           wp-root: ${{inputs.wp-root}}
