@@ -105,7 +105,7 @@ runs:
     # Exit code 2: failed after live changes began — site is in maintenance mode,
     # wp-config.php or symlinks may be in a partially-updated state.
     - name: Send urgent notification — site in maintenance mode
-      if: steps.swap.outcome == 'failure' && steps.swap.outputs.ssh_exit == '2' && inputs.smtp-server != '' && inputs.notify-email != ''
+      if: steps.swap.outcome == 'failure' && steps.swap.outputs.ssh_exit == '2' && inputs.smtp-server != '' && inputs.smtp-username != '' && inputs.smtp-password != '' && inputs.notify-email != ''
       uses: dawidd6/action-send-mail@v3
       with:
         server_address: ${{ inputs.smtp-server }}

@@ -116,7 +116,7 @@ if [ -d "$QUERIES_DIR" ]; then
 
     while IFS= read -r SQL_FILE; do
         FILENAME=$(basename "$SQL_FILE")
-        if ! echo "$APPLIED" | grep -qF "$FILENAME"; then
+        if ! echo "$APPLIED" | grep -qxF "$FILENAME"; then
             PENDING_FILES+=("$SQL_FILE")
         fi
     done < <(find "$QUERIES_DIR" -maxdepth 1 -name "*.sql" | sort)
