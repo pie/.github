@@ -52,7 +52,7 @@ runs:
         
     - name: Install Node Dependencies if required
       if: ${{inputs.npm == 'true' }}
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v6
       with:
         node-version: ${{ inputs.node_version || matrix.node }}
 
