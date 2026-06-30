@@ -14,7 +14,7 @@ set -euo pipefail
 #         manual intervention required before deactivating
 #
 # Injected by the action:
-#   WP_ROOT      Absolute path to the WordPress root (e.g. ~/site/public_html)
+#   WP_ROOT      Absolute path to the WordPress root (e.g. /home/piecode/site/public_html)
 #   GIT_SHA      Full git commit SHA for this deployment
 #   REPO_NAME    GitHub repository name (used to derive migrations table name)
 #
