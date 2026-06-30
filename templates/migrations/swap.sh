@@ -95,6 +95,16 @@ if [ ! -d "$NEW_RELEASE_DIR" ]; then
     exit 1
 fi
 
+log "Validating component release paths"
+for COMPONENT in "${COMPONENTS[@]}"; do
+    NAME="${COMPONENT##*:}"
+    RELEASE_PATH="$NEW_RELEASE_DIR/$NAME"
+    if [ ! -d "$RELEASE_PATH" ]; then
+        echo "ERROR: $RELEASE_PATH not found — did the rsync job for $NAME complete?" >&2
+        exit 1
+    fi
+done
+
 # ==============================================================================
 # Step 2: Detect pending migrations
 # ==============================================================================
@@ -203,11 +213,6 @@ for COMPONENT in "${COMPONENTS[@]}"; do
     NAME="${COMPONENT##*:}"
     LINK_PATH="$WP_ROOT/wp-content/$TYPE/$NAME"
     RELEASE_PATH="$NEW_RELEASE_DIR/$NAME"
-
-    if [ ! -d "$RELEASE_PATH" ]; then
-        echo "ERROR: $RELEASE_PATH not found — did the rsync job for $NAME complete?" >&2
-        exit 1
-    fi
 
     if [ -d "$LINK_PATH" ] && [ ! -L "$LINK_PATH" ]; then
         log "  First run: migrating $NAME to releases/initial/"
