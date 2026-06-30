@@ -26,7 +26,7 @@ Failures are handled based on how far the deploy got:
 **Server directory structure:**
 
 ```
-~/site/
+/home/piecode/site/
 ├── releases/
 │   ├── {current-sha}/          ← new deploy lands here via rsync
 │   │   ├── my-plugin/
@@ -37,9 +37,9 @@ Failures are handled based on how far the deploy got:
 └── public_html/                 ← WordPress root
     └── wp-content/
         ├── plugins/
-        │   └── my-plugin        → symlink → ../../releases/{sha}/my-plugin/
+        │   └── my-plugin        → /home/piecode/site/releases/{sha}/my-plugin/
         └── themes/
-            └── my-theme         → symlink → ../../releases/{sha}/my-theme/
+            └── my-theme         → /home/piecode/site/releases/{sha}/my-theme/
 ```
 
 **Inputs:**
