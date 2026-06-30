@@ -45,8 +45,8 @@ Failures are handled based on how far the deploy got:
 **Inputs:**
 
 - `ssh-host`: SSH host. Required.
-- `swap-script`: Absolute path to `migrations/swap.sh` on the server. Required. Must not start with `~`.
-- `wp-root`: Absolute path to the WordPress root on the server. Required. Must not start with `~`.
+- `wp-root`: Absolute path to the WordPress root on the server. Required. Must start with `/`.
+- `components`: Newline-separated list of components in `type:name` format. Required.
 - `ssh-port`: SSH port. Optional, default is `22`.
 - `ssh-user`: SSH user. Optional, default is `piecode`.
 
@@ -97,8 +97,10 @@ jobs:
     uses: pie/.github/.github/workflows/atomic-deploy.yaml@main
     with:
       ssh-host: example.com
-      swap-script: /home/piecode/site/releases/${{ github.sha }}/migrations/swap.sh
       wp-root: /home/piecode/site/public_html
+      components: |
+        plugins:my-plugin
+        themes:my-theme
     secrets:
       SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
       SMTP_SERVER: ${{secrets.SMTP_SERVER}}
@@ -114,8 +116,8 @@ If no migrations ran, re-pointing symlinks to the prior release is sufficient:
 WP_ROOT=/home/piecode/site/public_html
 PRIOR=$(ls -dt /home/piecode/site/releases/*/ | sed -n '2p')
 
-ln -sfn ${PRIOR}my-plugin $WP_ROOT/wp-content/plugins/my-plugin
-ln -sfn ${PRIOR}my-theme  $WP_ROOT/wp-content/themes/my-theme
+ln -sfn "${PRIOR}my-plugin" "$WP_ROOT/wp-content/plugins/my-plugin"
+ln -sfn "${PRIOR}my-theme"  "$WP_ROOT/wp-content/themes/my-theme"
 
 wp cache flush --path="$WP_ROOT"
 ```
@@ -300,13 +302,15 @@ These composite actions are used internally by the workflows above but can also 
 
 ### SQL Migrations
 
-Copy `templates/migrations/` into your project's `migrations/` directory and make the scripts executable (`chmod +x migrations/*.sh`).
+Copy `templates/migrations/` into your project to get the `migrations/queries/` directory structure. No scripts are needed per-project — `swap.sh` and `migrate.sh` are bundled with the action and uploaded to the server automatically on each deploy.
 
-| File | What to do |
-|---|---|
-| `swap.sh` | Edit the `COMPONENTS` array at the top — list each plugin/theme as `"type:directory-name"` |
-| `migrate.sh` | Copy as-is, no changes needed |
-| `queries/.gitkeep` | Add `.sql` files here; the `.gitkeep` can be removed once real migrations exist |
+The calling workflow should rsync `migrations/` to `releases/${{ github.sha }}/migrations` and pass the component list to the `atomic-deploy` workflow:
+
+```yaml
+components: |
+  plugins:my-plugin
+  themes:my-theme
+```
 
 **Naming convention:** `{four-digit-number}_{description}.sql` — the number controls execution order. Gaps are fine. Never renumber or delete a migration once committed.
 
@@ -314,6 +318,13 @@ Copy `templates/migrations/` into your project's `migrations/` directory and mak
 migrations/queries/
 ├── 0001_add_source_column.sql
 └── 0002_backfill_source_column.sql
+```
+
+**Table prefix placeholder:** Use `__WP_PREFIX__` in migration files wherever a table prefix is needed. It is replaced with the correct prefix at deploy time. Never hardcode `wp_` or any other prefix — a global string replacement would risk corrupting string literals or comments that happen to contain the prefix.
+
+```sql
+-- 0001_add_source_column.sql
+ALTER TABLE __WP_PREFIX__posts ADD COLUMN source VARCHAR(255) DEFAULT NULL;
 ```
 
 Migrations are tracked per-project in a table named `{repo_name}_migrations` (derived automatically). The table is created on first run if it does not exist.

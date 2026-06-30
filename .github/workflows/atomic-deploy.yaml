@@ -17,13 +17,13 @@ on:
         description: "SSH port to connect to"
         required: false
         default: 22
-      swap-script:
-        type: string
-        description: "Absolute path to the project's swap.sh on the remote server"
-        required: true
       wp-root:
         type: string
-        description: "Absolute path to the WordPress root on the remote server"
+        description: "Absolute path to the WordPress root on the remote server (must start with /)"
+        required: true
+      components:
+        type: string
+        description: "Newline-separated list of components to deploy, one per line in type:name format (e.g. plugins:my-plugin)"
         required: true
     secrets:
       SSH_PRIVATE_KEY:
@@ -62,10 +62,10 @@ jobs:
       - uses: pie/.github/actions/swap-and-migrate@main
         name: Run atomic swap and migrations
         with:
-          swap-script: ${{inputs.swap-script}}
           wp-root: ${{inputs.wp-root}}
           git-sha: ${{github.sha}}
           repo-name: ${{github.event.repository.name}}
+          components: ${{inputs.components}}
           notify-email: ${{secrets.NOTIFY_EMAIL || 'uptime_alerts-aaaaabagrbjrarifmw25mquney@piecode.slack.com'}}
           smtp-server: ${{secrets.SMTP_SERVER}}
           smtp-username: ${{secrets.SMTP_USERNAME}}

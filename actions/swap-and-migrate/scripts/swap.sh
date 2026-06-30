@@ -4,36 +4,16 @@ set -euo pipefail
 # ==============================================================================
 # swap.sh — Atomic deploy: migrations + symlink swap
 #
-# Called remotely by the swap-and-migrate GitHub Action. Runs in a single SSH
-# session. set -euo pipefail means any failure exits immediately.
-#
-# Exit codes:
-#   0  — success
-#   1  — failed before any live changes; maintenance mode was deactivated
-#   2  — failed after live changes began; site is in maintenance mode —
-#         manual intervention required before deactivating
+# Uploaded to the server by the swap-and-migrate action on each deploy.
+# Do not copy or edit this file per-project — changes belong in the action.
 #
 # Injected by the action:
-#   WP_ROOT      Absolute path to the WordPress root (e.g. /home/piecode/site/public_html)
-#   GIT_SHA      Full git commit SHA for this deployment
-#   REPO_NAME    GitHub repository name (used to derive migrations table name)
+#   WP_ROOT    Absolute path to the WordPress root (e.g. /home/piecode/site/public_html)
+#   GIT_SHA    Full git commit SHA for this deployment
+#   REPO_NAME  GitHub repository name (used to derive migrations table name)
 #
-# Copy this file into your project's migrations/ directory and update the
-# COMPONENTS array below. Do not edit below the configuration section.
-# ==============================================================================
-
-# ==============================================================================
-# PROJECT CONFIGURATION — edit this section only
-# ==============================================================================
-
-# Format: "type:directory-name" — type must be "plugins" or "themes"
-COMPONENTS=(
-    "plugins:my-plugin"
-    "themes:my-theme"
-)
-
-# ==============================================================================
-# Generic infrastructure — do not edit below this line
+# Components are read from components.txt in the same directory, written by the
+# action before this script runs. Format: one "type:name" entry per line.
 # ==============================================================================
 
 SHORT_SHA="${GIT_SHA:0:8}"
@@ -100,6 +80,19 @@ if [ ! -d "$NEW_RELEASE_DIR" ]; then
     exit 1
 fi
 
+COMPONENTS_FILE="$SCRIPT_DIR/components.txt"
+if [ ! -f "$COMPONENTS_FILE" ]; then
+    echo "ERROR: components.txt not found at $COMPONENTS_FILE" >&2
+    exit 1
+fi
+
+readarray -t COMPONENTS < <(grep -v '^[[:space:]]*$' "$COMPONENTS_FILE")
+
+if [ "${#COMPONENTS[@]}" -eq 0 ]; then
+    echo "ERROR: No components defined in components.txt" >&2
+    exit 1
+fi
+
 log "Validating component release paths"
 for COMPONENT in "${COMPONENTS[@]}"; do
     NAME="${COMPONENT##*:}"
@@ -139,9 +132,8 @@ fi
 # ==============================================================================
 # Step 3: Database migrations
 #
-# Maintenance mode is activated here. Any failure at this point is still safe
-# to recover from — we haven't touched wp-config.php or symlinks yet.
-# The cleanup trap will deactivate maintenance mode and exit 1.
+# Prefix derivation and pre-existence check run before the maintenance window
+# so a retry collision or bad config fails before any downtime.
 # ==============================================================================
 
 if [ "$HAS_MIGRATIONS" = true ]; then
@@ -201,7 +193,6 @@ if [ "$HAS_MIGRATIONS" = true ]; then
     log "Applying migrations against new prefix '$NEW_PREFIX'"
     WP_ROOT="$WP_ROOT" \
     MIGRATIONS_TABLE="$MIGRATIONS_TABLE" \
-    CURRENT_PREFIX="$CURRENT_PREFIX" \
     NEW_PREFIX="$NEW_PREFIX" \
         bash "$MIGRATE_SCRIPT"
 
