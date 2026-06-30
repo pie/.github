@@ -146,6 +146,32 @@ fi
 
 if [ "$HAS_MIGRATIONS" = true ]; then
 
+    # Derive the new prefix from the stable base — strip any previous atomic-deploy
+    # SHA suffix (8 hex chars + _) so the base never grows across repeated deploys.
+    # e.g. wp_ -> wp_abc12345_; foo_abc12345_ -> foo_ -> foo_def67890_
+    CURRENT_PREFIX=$(wp config get table_prefix --path="$WP_ROOT")
+    BASE_PREFIX=$(printf '%s' "$CURRENT_PREFIX" | sed 's/[0-9a-f]\{8\}_$//')
+    NEW_PREFIX="${BASE_PREFIX}${SHORT_SHA}_"
+    log "Table prefix: '$CURRENT_PREFIX' -> '$NEW_PREFIX'"
+
+    EXISTING_COUNT=$(wp db query \
+        "SELECT COUNT(*) FROM information_schema.tables \
+         WHERE table_schema = DATABASE() \
+         AND LEFT(table_name, CHAR_LENGTH('${NEW_PREFIX}')) = '${NEW_PREFIX}'" \
+        --path="$WP_ROOT" --skip-column-names)
+
+    if [ "$EXISTING_COUNT" -gt 0 ]; then
+        echo "ERROR: Tables with prefix '${NEW_PREFIX}' already exist — a previous deploy attempt may have left partial data." >&2
+        echo "ERROR: Drop them before retrying:" >&2
+        wp db query \
+            "SELECT CONCAT('DROP TABLE \`', table_name, '\`;') \
+             FROM information_schema.tables \
+             WHERE table_schema = DATABASE() \
+             AND LEFT(table_name, CHAR_LENGTH('${NEW_PREFIX}')) = '${NEW_PREFIX}'" \
+            --path="$WP_ROOT" --skip-column-names >&2
+        exit 1
+    fi
+
     log "Enabling maintenance mode"
     wp maintenance-mode activate --path="$WP_ROOT"
     MAINTENANCE_ACTIVE=true
@@ -156,8 +182,6 @@ if [ "$HAS_MIGRATIONS" = true ]; then
     log "Exporting database backup to $BACKUP_FILE"
     wp db export "$BACKUP_FILE" --path="$WP_ROOT"
 
-    CURRENT_PREFIX=$(wp config get table_prefix --path="$WP_ROOT")
-    NEW_PREFIX="wp_${SHORT_SHA}_"
     log "Copying tables from prefix '$CURRENT_PREFIX' to '$NEW_PREFIX'"
 
     TABLES=$(wp db query \
