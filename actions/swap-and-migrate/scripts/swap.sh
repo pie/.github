@@ -22,7 +22,7 @@ NEW_RELEASE_DIR="$RELEASES_DIR/$GIT_SHA"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MIGRATE_SCRIPT="$SCRIPT_DIR/migrate.sh"
 QUERIES_DIR="$SCRIPT_DIR/queries"
-MIGRATIONS_TABLE="$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g' | cut -c1-53)_migrations"
+REPO_SLUG="$(printf '%s' "$REPO_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g' | cut -c1-53)"
 HAS_MIGRATIONS=false
 MAINTENANCE_ACTIVE=false
 SAFE_TO_RECOVER=true
@@ -75,6 +75,9 @@ fi
 log "Verifying database connectivity"
 wp db check --path="$WP_ROOT"
 
+CURRENT_PREFIX=$(wp config get table_prefix --path="$WP_ROOT")
+LIVE_MIGRATIONS_TABLE="${CURRENT_PREFIX}${REPO_SLUG}_migrations"
+
 if [ ! -d "$NEW_RELEASE_DIR" ]; then
     echo "ERROR: Release directory $NEW_RELEASE_DIR not found — did all rsync jobs complete?" >&2
     exit 1
@@ -111,7 +114,7 @@ PENDING_FILES=()
 
 if [ -d "$QUERIES_DIR" ]; then
     APPLIED=$(wp db query \
-        "SELECT filename FROM \`$MIGRATIONS_TABLE\`" \
+        "SELECT filename FROM \`$LIVE_MIGRATIONS_TABLE\`" \
         --path="$WP_ROOT" --skip-column-names 2>/dev/null || echo "")
 
     while IFS= read -r SQL_FILE; do
@@ -141,9 +144,9 @@ if [ "$HAS_MIGRATIONS" = true ]; then
     # Derive the new prefix from the stable base — strip any previous atomic-deploy
     # SHA suffix (8 hex chars + _) so the base never grows across repeated deploys.
     # e.g. wp_ -> wp_abc12345_; foo_abc12345_ -> foo_ -> foo_def67890_
-    CURRENT_PREFIX=$(wp config get table_prefix --path="$WP_ROOT")
     BASE_PREFIX=$(printf '%s' "$CURRENT_PREFIX" | sed 's/[0-9a-f]\{8\}_$//')
     NEW_PREFIX="${BASE_PREFIX}${SHORT_SHA}_"
+    NEW_MIGRATIONS_TABLE="${NEW_PREFIX}${REPO_SLUG}_migrations"
     log "Table prefix: '$CURRENT_PREFIX' -> '$NEW_PREFIX'"
 
     EXISTING_COUNT=$(wp db query \
@@ -192,7 +195,7 @@ if [ "$HAS_MIGRATIONS" = true ]; then
 
     log "Applying migrations against new prefix '$NEW_PREFIX'"
     WP_ROOT="$WP_ROOT" \
-    MIGRATIONS_TABLE="$MIGRATIONS_TABLE" \
+    MIGRATIONS_TABLE="$NEW_MIGRATIONS_TABLE" \
     NEW_PREFIX="$NEW_PREFIX" \
         bash "$MIGRATE_SCRIPT"
 
