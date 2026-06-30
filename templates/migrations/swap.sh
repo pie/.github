@@ -147,7 +147,8 @@ if [ "$HAS_MIGRATIONS" = true ]; then
 
     TABLES=$(wp db query \
         "SELECT table_name FROM information_schema.tables \
-         WHERE table_schema = DATABASE() AND table_name LIKE '${CURRENT_PREFIX}%'" \
+         WHERE table_schema = DATABASE() \
+         AND LEFT(table_name, CHAR_LENGTH('${CURRENT_PREFIX}')) = '${CURRENT_PREFIX}'" \
         --path="$WP_ROOT" --skip-column-names)
 
     while IFS= read -r TABLE; do
