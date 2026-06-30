@@ -66,7 +66,6 @@ runs:
         ssh server "mkdir -p $MIGRATIONS_DIR_Q"
         scp "$GITHUB_ACTION_PATH/scripts/swap.sh" "server:$MIGRATIONS_DIR/swap.sh"
         scp "$GITHUB_ACTION_PATH/scripts/migrate.sh" "server:$MIGRATIONS_DIR/migrate.sh"
-        ssh server "chmod +x $MIGRATIONS_DIR_Q/swap.sh $MIGRATIONS_DIR_Q/migrate.sh"
         printf '%s' "$DEPLOY_COMPONENTS" | ssh server "cat > $MIGRATIONS_DIR_Q/components.txt"
 
     - name: Run atomic swap and migrations
