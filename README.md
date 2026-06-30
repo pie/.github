@@ -4,6 +4,123 @@ This repository contains reusable workflows and composite actions for managing r
 
 ## Workflows
 
+### Atomic Deploy
+
+Deploys components to a release directory keyed by the git commit SHA, then atomically swaps symlinks and runs any pending database migrations in a single maintenance window. Supports instant rollback by re-pointing symlinks to the prior release.
+
+**How it works:**
+
+Rsync jobs deploy each component to `~/site/releases/{sha}/` on the server. Once all jobs complete, the `atomic_deploy` job SSH's in and runs the project's `migrations/swap.sh`, which:
+
+1. Verifies WP-CLI can reach the database
+2. Checks for pending SQL migrations
+3. If any: enables maintenance mode → exports a database backup → copies live tables to a new `wp_{short-sha}_` prefix → runs migrations against the copy → switches `wp-config.php` to the new prefix → drops old tables
+4. Re-points symlinks to the new release (bootstrapping to the release structure automatically on first run)
+5. Prunes releases older than 1 prior
+
+If anything fails after maintenance mode is activated, the script exits and maintenance mode stays on — the site remains down rather than returning in a broken state. A failure notification is sent to `#uptime_alerts`.
+
+**Server directory structure:**
+
+```
+~/site/
+├── releases/
+│   ├── {current-sha}/          ← new deploy lands here via rsync
+│   │   ├── my-plugin/
+│   │   ├── my-theme/
+│   │   └── migrations/
+│   └── {previous-sha}/         ← kept for rollback
+├── db-backups/                  ← pre-migration exports (when migrations run)
+└── public_html/                 ← WordPress root
+    └── wp-content/
+        ├── plugins/
+        │   └── my-plugin        → symlink → ../../releases/{sha}/my-plugin/
+        └── themes/
+            └── my-theme         → symlink → ../../releases/{sha}/my-theme/
+```
+
+**Inputs:**
+
+- `ssh-host`: SSH host. Required.
+- `swap-script`: Absolute path to `migrations/swap.sh` on the server. Required.
+- `wp-root`: Absolute path to the WordPress root on the server. Required.
+- `ssh-port`: SSH port. Optional, default is `22`.
+- `ssh-user`: SSH user. Optional, default is `piecode`.
+
+**Secrets:**
+
+- `SSH_PRIVATE_KEY`: SSH private key. Required.
+- `SMTP_SERVER`: SMTP server for failure notifications. Optional — set at organisation level.
+- `SMTP_USERNAME`: SMTP username. Optional — set at organisation level.
+- `SMTP_PASSWORD`: SMTP password. Optional — set at organisation level.
+- `NOTIFY_EMAIL`: Override the notification recipient. Optional — defaults to `#uptime_alerts` Slack channel.
+
+**Example:**
+
+```yaml
+name: Deploy to Production
+on:
+  push:
+    branches:
+      - production
+jobs:
+  deploy_plugin:
+    uses: pie/.github/.github/workflows/deploy.yaml@main
+    with:
+      ssh-host: example.com
+      destination-path: ~/site/releases/${{ github.sha }}/my-plugin
+      npm: true
+    secrets:
+      SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
+
+  deploy_theme:
+    uses: pie/.github/.github/workflows/deploy.yaml@main
+    with:
+      ssh-host: example.com
+      destination-path: ~/site/releases/${{ github.sha }}/my-theme
+    secrets:
+      SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
+
+  deploy_migrations:
+    uses: pie/.github/.github/workflows/deploy.yaml@main
+    with:
+      ssh-host: example.com
+      destination-path: ~/site/releases/${{ github.sha }}/migrations
+    secrets:
+      SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
+
+  atomic_deploy:
+    needs: [deploy_plugin, deploy_theme, deploy_migrations]
+    uses: pie/.github/.github/workflows/atomic-deploy.yaml@main
+    with:
+      ssh-host: example.com
+      swap-script: ~/site/releases/${{ github.sha }}/migrations/swap.sh
+      wp-root: ~/site/public_html
+    secrets:
+      SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
+      SMTP_SERVER: ${{secrets.SMTP_SERVER}}
+      SMTP_USERNAME: ${{secrets.SMTP_USERNAME}}
+      SMTP_PASSWORD: ${{secrets.SMTP_PASSWORD}}
+```
+
+**Rollback:**
+
+Re-point each symlink to the prior release on the server, then flush the cache:
+
+```bash
+WP_ROOT=~/site/public_html
+PRIOR=$(ls -dt ~/site/releases/*/ | sed -n '2p')
+
+ln -sfn ${PRIOR}my-plugin $WP_ROOT/wp-content/plugins/my-plugin
+ln -sfn ${PRIOR}my-theme  $WP_ROOT/wp-content/themes/my-theme
+
+wp cache flush --path="$WP_ROOT"
+```
+
+If the failed deploy included database migrations and maintenance mode is still active, check `wp config get table_prefix --path="$WP_ROOT"` before restoring traffic — the prefix switch may not have completed.
+
+---
+
 ### Deploy via Rsync
 
 Deploys to a remote server using rsync, supporting both SSH key and password-based authentication.
@@ -167,6 +284,31 @@ These composite actions are used internally by the workflows above but can also 
 | `add-ssh-pass` | Installs sshpass and configures password-based SSH authentication |
 | `deploy-via-rsync` | Runs an optional Composer/npm build then deploys files via rsync |
 | `deploy-via-ftp` | Runs an optional Composer/npm build then deploys files via FTP |
+| `swap-and-migrate` | Runs DB migrations and symlink swap atomically in a single SSH session |
 | `synchronise-remote` | Executes a synchronisation script on a remote server over SSH |
 | `verify-branch-is-correct` | Fails the job if the current branch does not match the expected branch (default: `production`) |
 | `verify-branch-is-up-to-date` | Fails the job if the current branch is behind the target branch (default: `main`) |
+
+---
+
+## Templates
+
+### SQL Migrations
+
+Copy `templates/migrations/` into your project's `migrations/` directory and make the scripts executable (`chmod +x migrations/*.sh`).
+
+| File | What to do |
+|---|---|
+| `swap.sh` | Edit the `COMPONENTS` array at the top — list each plugin/theme as `"type:directory-name"` |
+| `migrate.sh` | Copy as-is, no changes needed |
+| `queries/.gitkeep` | Add `.sql` files here; the `.gitkeep` can be removed once real migrations exist |
+
+**Naming convention:** `{four-digit-number}_{description}.sql` — the number controls execution order. Gaps are fine. Never renumber or delete a migration once committed.
+
+```
+migrations/queries/
+├── 0001_add_source_column.sql
+└── 0002_backfill_source_column.sql
+```
+
+Migrations are tracked per-project in a table named `{repo_name}_migrations` (derived automatically). The table is created on first run if it does not exist.
