@@ -6,21 +6,21 @@ This repository contains reusable workflows and composite actions for managing r
 
 ### Atomic Deploy
 
-Deploys components to a release directory keyed by the git commit SHA, then swaps symlinks and runs any pending database migrations. When migrations are pending, the database work and symlink swap are performed inside a maintenance window. When there are no pending migrations, symlinks are swapped with no downtime. Supports rollback by re-pointing symlinks to the prior release; when migrations ran, the old prefix tables are dropped during deployment, so a full database rollback requires restoring from the pre-deploy backup rather than re-pointing symlinks alone.
+Deploys components to a release directory keyed by the git commit SHA, then atomically swaps them into place and runs any pending database migrations. When migrations are pending, the database work and component swap are performed inside a maintenance window. When there are no pending migrations, components are swapped with no downtime. Supports rollback by resyncing the prior release back to the live directories; when migrations ran, the old prefix tables are dropped during deployment, so a full rollback requires restoring from the pre-deploy backup.
 
 **How it works:**
 
-Rsync jobs deploy each component to `~/site/releases/{sha}/` on the server. Once all jobs complete, the `atomic_deploy` job SSH's in and runs the project's `migrations/swap.sh`, which:
+Rsync jobs deploy each component to a release directory keyed by the commit SHA. Once all jobs complete, the `atomic_deploy` job SSH's in and runs `swap.sh`, which:
 
 1. Verifies WP-CLI can reach the database
 2. Checks for pending SQL migrations
-3. If any: enables maintenance mode → exports a database backup → copies live tables to a new `wp_{short-sha}_` prefix → runs migrations against the copy → switches `wp-config.php` to the new prefix → drops old tables
-4. Re-points symlinks to the new release (bootstrapping to the release structure automatically on first run)
+3. If any: enables maintenance mode → exports a database backup → copies live tables to a new `{base-prefix}{short-sha}_` prefix → runs migrations against the copy → updates usermeta keys and option names to the new prefix → switches `wp-config.php` to the new prefix → drops old tables
+4. Rsyncs each component from the release directory to a hidden staging path, then atomically renames it into place
 5. Prunes releases older than 1 prior
 
 Failures are handled based on how far the deploy got:
 
-- **Before `wp-config.php` or symlinks change** — maintenance mode is deactivated automatically and the site recovers on the previous version. A notification is sent with subject *Deploy failed, site recovered*.
+- **Before `wp-config.php` or components change** — maintenance mode is deactivated automatically and the site recovers on the previous version. A notification is sent with subject *Deploy failed, site recovered*.
 - **After either live change begins** — maintenance mode stays on to prevent the site returning in a broken state. A notification is sent with subject *URGENT: Site in maintenance mode*, including instructions for manual verification.
 
 **Server directory structure:**
@@ -37,9 +37,9 @@ Failures are handled based on how far the deploy got:
 └── public_html/                 ← WordPress root
     └── wp-content/
         ├── plugins/
-        │   └── my-plugin        → /home/piecode/site/releases/{sha}/my-plugin/
+        │   └── my-plugin/      ← files copied from releases/{sha}/my-plugin/
         └── themes/
-            └── my-theme         → /home/piecode/site/releases/{sha}/my-theme/
+            └── my-theme/       ← files copied from releases/{sha}/my-theme/
 ```
 
 **Inputs:**
@@ -67,28 +67,41 @@ on:
     branches:
       - production
 jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      short-sha: ${{ steps.sha.outputs.short_sha }}
+    steps:
+      - id: sha
+        shell: bash
+        run: echo "short_sha=${GITHUB_SHA:0:8}" >> $GITHUB_OUTPUT
+
   deploy_plugin:
+    needs: setup
     uses: pie/.github/.github/workflows/deploy.yaml@main
     with:
       ssh-host: example.com
-      destination-path: /home/piecode/site/releases/${{ github.sha }}/my-plugin
+      destination-path: /home/piecode/site/releases/${{ needs.setup.outputs.short-sha }}/my-plugin
       npm: true
     secrets:
       SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
 
   deploy_theme:
+    needs: setup
     uses: pie/.github/.github/workflows/deploy.yaml@main
     with:
       ssh-host: example.com
-      destination-path: /home/piecode/site/releases/${{ github.sha }}/my-theme
+      destination-path: /home/piecode/site/releases/${{ needs.setup.outputs.short-sha }}/my-theme
     secrets:
       SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
 
   deploy_migrations:
+    needs: setup
     uses: pie/.github/.github/workflows/deploy.yaml@main
     with:
       ssh-host: example.com
-      destination-path: /home/piecode/site/releases/${{ github.sha }}/migrations
+      source-path: migrations/
+      destination-path: /home/piecode/site/releases/${{ needs.setup.outputs.short-sha }}/migrations
     secrets:
       SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
 
@@ -98,6 +111,7 @@ jobs:
     with:
       ssh-host: example.com
       wp-root: /home/piecode/site/public_html
+      releases-dir: /home/piecode/site/releases
       components: |
         plugins:my-plugin
         themes:my-theme
@@ -110,21 +124,22 @@ jobs:
 
 **Rollback:**
 
-If no migrations ran, re-pointing symlinks to the prior release is sufficient:
+If no migrations ran, resync each component from the prior release back to the live directory:
 
 ```bash
 WP_ROOT=/home/piecode/site/public_html
-PRIOR=$(ls -dt /home/piecode/site/releases/*/ | sed -n '2p')
+RELEASES=/home/piecode/site/releases
+PRIOR=$(ls -dt "$RELEASES"/*/  | sed -n '2p')
 
-ln -sfn "${PRIOR}my-plugin" "$WP_ROOT/wp-content/plugins/my-plugin"
-ln -sfn "${PRIOR}my-theme"  "$WP_ROOT/wp-content/themes/my-theme"
+rsync -a --delete "${PRIOR}my-plugin/" "$WP_ROOT/wp-content/plugins/my-plugin/"
+rsync -a --delete "${PRIOR}my-theme/"  "$WP_ROOT/wp-content/themes/my-theme/"
 
 wp cache flush --path="$WP_ROOT"
 ```
 
-If migrations ran, the old prefix tables were dropped after the prefix switch — a symlink-only rollback leaves the old code running against the migrated schema, which may or may not be compatible. A full rollback requires restoring the database from the pre-deploy backup in `db-backups/` and reverting `table_prefix` in `wp-config.php` to the previous value.
+If migrations ran, the old prefix tables were dropped after the prefix switch — rolling back the code alone leaves it running against the migrated schema, which may or may not be compatible. A full rollback requires restoring the database from the pre-deploy backup in `db-backups/` and reverting `table_prefix` in `wp-config.php` to the previous value.
 
-If the failure notification subject says *URGENT: Site in maintenance mode*, the deploy failed after live changes began. Before deactivating maintenance mode, verify the table prefix and symlinks are in a consistent state — the notification email includes the exact commands to run.
+If the failure notification subject says *URGENT: Site in maintenance mode*, the deploy failed after live changes began. Before deactivating maintenance mode, verify the table prefix and component directories are in a consistent state — the notification email includes the exact commands to run.
 
 ---
 

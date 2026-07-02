@@ -242,16 +242,25 @@ mkdir -p "$RELEASES_DIR"
 for COMPONENT in "${COMPONENTS[@]}"; do
     TYPE="${COMPONENT%%:*}"
     NAME="${COMPONENT##*:}"
-    LINK_PATH="$WP_ROOT/wp-content/$TYPE/$NAME"
+    LIVE_PATH="$WP_ROOT/wp-content/$TYPE/$NAME"
     RELEASE_PATH="$NEW_RELEASE_DIR/$NAME"
+    STAGING_PATH="${LIVE_PATH}.deploying"
+    OLD_PATH="${LIVE_PATH}.previous"
 
-    if [ -d "$LINK_PATH" ] && [ ! -L "$LINK_PATH" ]; then
-        log "  First run: migrating $NAME to releases/initial/"
-        mkdir -p "$RELEASES_DIR/initial"
-        mv "$LINK_PATH" "$RELEASES_DIR/initial/"
+    # Clear any remnants from a previous failed deploy
+    rm -rf "$STAGING_PATH" "$OLD_PATH"
+
+    # Rsync to a hidden staging directory not yet visible to WordPress
+    mkdir -p "$STAGING_PATH"
+    rsync -a --delete "$RELEASE_PATH/" "$STAGING_PATH/"
+
+    # Atomic rename: live → .previous, staging → live
+    if [ -e "$LIVE_PATH" ] || [ -L "$LIVE_PATH" ]; then
+        mv "$LIVE_PATH" "$OLD_PATH"
     fi
+    mv "$STAGING_PATH" "$LIVE_PATH"
+    rm -rf "$OLD_PATH"
 
-    ln -sfn "$RELEASE_PATH" "$LINK_PATH"
     log "  $TYPE/$NAME -> $RELEASE_PATH"
 done
 
