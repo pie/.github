@@ -68,13 +68,7 @@ on:
       - production
 jobs:
   setup:
-    runs-on: ubuntu-latest
-    outputs:
-      short-sha: ${{ steps.sha.outputs.short_sha }}
-    steps:
-      - id: sha
-        shell: bash
-        run: echo "short_sha=${GITHUB_SHA:0:8}" >> $GITHUB_OUTPUT
+    uses: pie/.github/.github/workflows/setup.yaml@main
 
   deploy_plugin:
     needs: setup
