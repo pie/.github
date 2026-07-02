@@ -306,7 +306,7 @@ These composite actions are used internally by the workflows above but can also 
 | `add-ssh-pass` | Installs sshpass and configures password-based SSH authentication |
 | `deploy-via-rsync` | Runs an optional Composer/npm build then deploys files via rsync |
 | `deploy-via-ftp` | Runs an optional Composer/npm build then deploys files via FTP |
-| `swap-and-migrate` | Runs DB migrations and symlink swap atomically in a single SSH session |
+| `swap-and-migrate` | Runs DB migrations and atomic component swap in a single SSH session |
 | `synchronise-remote` | Executes a synchronisation script on a remote server over SSH |
 | `verify-branch-is-correct` | Fails the job if the current branch does not match the expected branch (default: `production`) |
 | `verify-branch-is-up-to-date` | Fails the job if the current branch is behind the target branch (default: `main`) |

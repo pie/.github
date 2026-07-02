@@ -1,5 +1,5 @@
 name: Swap and Migrate
-description: "Performs maintenance mode, database migrations, and symlink swap atomically in a single SSH session"
+description: "Performs maintenance mode, database migrations, and atomic component swap in a single SSH session"
 
 inputs:
   wp-root:
@@ -138,7 +138,7 @@ runs:
           <p>Before deactivating maintenance mode, SSH into the server and verify:</p>
           <ol>
             <li>Check the active table prefix:<br><code>wp config get table_prefix --path="${{ inputs.wp-root }}"</code></li>
-            <li>Check symlinks in wp-content point to a consistent release:<br><code>ls -la ${{ inputs.wp-root }}/wp-content/plugins/ ${{ inputs.wp-root }}/wp-content/themes/</code></li>
+            <li>Check component directories in wp-content are in a consistent state:<br><code>ls -la ${{ inputs.wp-root }}/wp-content/plugins/ ${{ inputs.wp-root }}/wp-content/themes/</code></li>
           </ol>
           <p>Once the state is confirmed safe, deactivate maintenance mode:<br><code>wp maintenance-mode deactivate --path="${{ inputs.wp-root }}"</code></p>
           <p><strong>Repository:</strong> ${{ github.repository }}<br>

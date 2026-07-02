@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ==============================================================================
-# swap.sh — Atomic deploy: migrations + symlink swap
+# swap.sh — Atomic deploy: migrations + component swap
 #
 # Uploaded to the server by the swap-and-migrate action on each deploy.
 # Do not copy or edit this file per-project — changes belong in the action.
@@ -32,7 +32,7 @@ log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 # Fires on any non-zero exit via set -euo pipefail.
 #
 # If maintenance mode was never activated, nothing to do.
-# If activated and we haven't yet touched wp-config or symlinks, it is safe to
+# If activated and we haven't yet touched wp-config or components, it is safe to
 # deactivate — the live site is unmodified. Exit 1.
 # If activated and live changes have begun (SAFE_TO_RECOVER=false), the site
 # must stay in maintenance mode until manually verified. Exit 2.
@@ -204,7 +204,7 @@ if [ "$HAS_MIGRATIONS" = true ]; then
     wp db query "UPDATE \`${NEW_PREFIX}options\` SET option_name = REPLACE(option_name, '${CURRENT_PREFIX}', '${NEW_PREFIX}') WHERE LEFT(option_name, CHAR_LENGTH('${CURRENT_PREFIX}')) = '${CURRENT_PREFIX}'" --path="$WP_ROOT"
 
     # ------------------------------------------------------------------
-    # Point of no return — wp-config.php and symlinks are about to change.
+    # Point of no return — wp-config.php and components are about to change.
     # Any failure from here requires manual verification before the site
     # can safely come back up. The cleanup trap exits 2 if MAINTENANCE_ACTIVE
     # is true and SAFE_TO_RECOVER is false.
@@ -228,14 +228,14 @@ if [ "$HAS_MIGRATIONS" = true ]; then
 fi
 
 # ==============================================================================
-# Step 4: Symlink swap
+# Step 4: Component swap
 #
-# On first run, if a real directory exists where a symlink is expected, it is
-# moved into releases/initial/ and the symlink is created in its place — no
-# manual server setup required.
+# Each component is rsynced to a hidden staging directory, then atomically
+# renamed into place. WordPress ignores directories starting with '.', so
+# the staging copy is never served during the transfer.
 # ==============================================================================
 
-log "Swapping symlinks to release $GIT_SHA"
+log "Deploying components for release $GIT_SHA"
 
 mkdir -p "$RELEASES_DIR"
 
