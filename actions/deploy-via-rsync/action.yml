@@ -97,6 +97,13 @@ runs:
           echo EXCLUDE_FROM="" >> "$GITHUB_ENV"
         fi
     
+    - name: Create destination directory (pubkey)
+      if: inputs.sshpass != 'true'
+      shell: bash
+      env:
+        DEST: ${{ inputs.destination-path }}
+      run: ssh server "mkdir -p $(printf '%q' "$DEST")"
+
     - name: Rsync to the remote with pubkey
       if: inputs.sshpass != 'true'
       run: rsync ${{inputs.rsync-flags}}  ${{inputs.rsync-args}} ${{ env.EXCLUDE_FROM }} ${{inputs.source-path}} server:${{inputs.destination-path}}
@@ -117,6 +124,13 @@ runs:
           echo "SSHPASS is set (length=${#SSHPASS})."
         fi
       shell: bash
+
+    - name: Create destination directory (sshpass)
+      if: inputs.sshpass == 'true'
+      shell: bash
+      env:
+        DEST: ${{ inputs.destination-path }}
+      run: sshpass -e ssh -o StrictHostKeyChecking=no -p ${{inputs.ssh-port}} ${{inputs.ssh-user}}@${{inputs.ssh-host}} "mkdir -p $(printf '%q' "$DEST")"
 
     - name: Rsync to the remote with sshpass
       if: inputs.sshpass == 'true'

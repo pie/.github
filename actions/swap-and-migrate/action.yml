@@ -1,0 +1,151 @@
+name: Swap and Migrate
+description: "Performs maintenance mode, database migrations, and atomic component swap in a single SSH session"
+
+inputs:
+  wp-root:
+    description: "Absolute path to the WordPress root on the remote server (must start with /)"
+    required: true
+  git-sha:
+    description: "Git commit SHA for the current deployment"
+    required: true
+  repo-name:
+    description: "Repository name used to derive the migrations tracking table name"
+    required: true
+  components:
+    description: "Newline-separated list of components to deploy, one per line in type:name format (e.g. plugins:my-plugin)"
+    required: true
+  releases-dir:
+    description: "Absolute path to the releases directory on the server. Defaults to a 'releases' sibling of wp-root when not set."
+    required: false
+    default: ""
+  notify-email:
+    description: "Email address to notify on failure"
+    required: false
+    default: ""
+  smtp-server:
+    description: "SMTP server address"
+    required: false
+    default: ""
+  smtp-username:
+    description: "SMTP username"
+    required: false
+    default: ""
+  smtp-password:
+    description: "SMTP password"
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Validate inputs
+      shell: bash
+      env:
+        WP_ROOT: ${{ inputs.wp-root }}
+      run: |
+        if [[ "$WP_ROOT" != '/'* ]]; then
+          echo "Error: wp-root must be an absolute path starting with / (e.g. /home/piecode/site/public_html)." >&2
+          exit 1
+        fi
+
+    - name: Upload swap scripts to server
+      shell: bash
+      env:
+        WP_ROOT: ${{ inputs.wp-root }}
+        GIT_SHA: ${{ inputs.git-sha }}
+        DEPLOY_COMPONENTS: ${{ inputs.components }}
+        RELEASES_DIR_INPUT: ${{ inputs.releases-dir }}
+      run: |
+        if [ -n "$RELEASES_DIR_INPUT" ]; then
+          RELEASES_DIR="$RELEASES_DIR_INPUT"
+        else
+          RELEASES_DIR="$(dirname "$WP_ROOT")/releases"
+        fi
+        MIGRATIONS_DIR="$RELEASES_DIR/$GIT_SHA/migrations"
+        MIGRATIONS_DIR_Q=$(printf '%q' "$MIGRATIONS_DIR")
+        ssh server "mkdir -p $MIGRATIONS_DIR_Q"
+        scp "$GITHUB_ACTION_PATH/scripts/swap.sh" "server:$MIGRATIONS_DIR/swap.sh"
+        scp "$GITHUB_ACTION_PATH/scripts/migrate.sh" "server:$MIGRATIONS_DIR/migrate.sh"
+        printf '%s' "$DEPLOY_COMPONENTS" | ssh server "cat > $MIGRATIONS_DIR_Q/components.txt"
+
+    - name: Run atomic swap and migrations
+      id: swap
+      continue-on-error: true
+      shell: bash
+      env:
+        WP_ROOT: ${{ inputs.wp-root }}
+        GIT_SHA: ${{ inputs.git-sha }}
+        REPO_NAME: ${{ inputs.repo-name }}
+        RELEASES_DIR_INPUT: ${{ inputs.releases-dir }}
+      run: |
+        set +e
+        WP_ROOT_Q=$(printf '%q' "$WP_ROOT")
+        GIT_SHA_Q=$(printf '%q' "$GIT_SHA")
+        REPO_NAME_Q=$(printf '%q' "$REPO_NAME")
+        if [ -n "$RELEASES_DIR_INPUT" ]; then
+          RELEASES_DIR="$RELEASES_DIR_INPUT"
+        else
+          RELEASES_DIR="$(dirname "$WP_ROOT")/releases"
+        fi
+        RELEASES_DIR_Q=$(printf '%q' "$RELEASES_DIR")
+        SWAP_SCRIPT="$RELEASES_DIR/$GIT_SHA/migrations/swap.sh"
+        SWAP_SCRIPT_Q=$(printf '%q' "$SWAP_SCRIPT")
+        ssh server "env WP_ROOT=$WP_ROOT_Q GIT_SHA=$GIT_SHA_Q REPO_NAME=$REPO_NAME_Q RELEASES_DIR=$RELEASES_DIR_Q bash $SWAP_SCRIPT_Q"
+        SSH_EXIT=$?
+        set -e
+        echo "ssh_exit=${SSH_EXIT}" >> "$GITHUB_OUTPUT"
+        exit $SSH_EXIT
+
+    # Exit code 1: failed before live changes — maintenance mode was deactivated,
+    # site is running on the previous version.
+    - name: Send failure notification — site recovered
+      if: steps.swap.outcome == 'failure' && steps.swap.outputs.ssh_exit == '1' && inputs.smtp-server != '' && inputs.smtp-username != '' && inputs.smtp-password != '' && inputs.notify-email != ''
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: ${{ inputs.smtp-server }}
+        server_port: 465
+        secure: true
+        username: ${{ inputs.smtp-username }}
+        password: ${{ inputs.smtp-password }}
+        to: ${{ inputs.notify-email }}
+        from: GitHub Actions <noreply@pie.co.de>
+        subject: "Deploy failed, site recovered — ${{ github.repository }}"
+        html_body: |
+          <h2>Deploy failed — site recovered</h2>
+          <p>The deploy failed before any live changes were made. Maintenance mode was deactivated automatically. The site is running on the previous version.</p>
+          <p><strong>Repository:</strong> ${{ github.repository }}<br>
+          <strong>SHA:</strong> ${{ inputs.git-sha }}<br>
+          <strong>Exit code:</strong> ${{ steps.swap.outputs.ssh_exit }}</p>
+          <p><a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View workflow run for full log</a></p>
+
+    # Exit code 2: failed after live changes began — site is in maintenance mode,
+    # wp-config.php or symlinks may be in a partially-updated state.
+    - name: Send urgent notification — site in maintenance mode
+      if: steps.swap.outcome == 'failure' && steps.swap.outputs.ssh_exit == '2' && inputs.smtp-server != '' && inputs.smtp-username != '' && inputs.smtp-password != '' && inputs.notify-email != ''
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: ${{ inputs.smtp-server }}
+        server_port: 465
+        secure: true
+        username: ${{ inputs.smtp-username }}
+        password: ${{ inputs.smtp-password }}
+        to: ${{ inputs.notify-email }}
+        from: GitHub Actions <noreply@pie.co.de>
+        subject: "URGENT: Site in maintenance mode — ${{ github.repository }}"
+        html_body: |
+          <h2>&#9888;&#65039; Urgent: site is in maintenance mode</h2>
+          <p>The deploy failed after live changes began. <strong>The site is currently in maintenance mode and requires manual intervention.</strong></p>
+          <p>Before deactivating maintenance mode, SSH into the server and verify:</p>
+          <ol>
+            <li>Check the active table prefix:<br><code>wp config get table_prefix --path="${{ inputs.wp-root }}"</code></li>
+            <li>Check component directories in wp-content are in a consistent state:<br><code>ls -la ${{ inputs.wp-root }}/wp-content/plugins/ ${{ inputs.wp-root }}/wp-content/themes/</code></li>
+          </ol>
+          <p>Once the state is confirmed safe, deactivate maintenance mode:<br><code>wp maintenance-mode deactivate --path="${{ inputs.wp-root }}"</code></p>
+          <p><strong>Repository:</strong> ${{ github.repository }}<br>
+          <strong>SHA:</strong> ${{ inputs.git-sha }}</p>
+          <p><a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View workflow run for full log</a></p>
+
+    - name: Fail the job
+      if: steps.swap.outcome == 'failure'
+      shell: bash
+      run: exit 1

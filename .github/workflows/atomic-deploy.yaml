@@ -1,0 +1,83 @@
+name: Atomic Deploy
+
+on:
+  workflow_call:
+    inputs:
+      ssh-host:
+        type: string
+        description: "SSH host to connect to"
+        required: true
+      ssh-user:
+        type: string
+        description: "SSH user to connect with"
+        required: false
+        default: piecode
+      ssh-port:
+        type: number
+        description: "SSH port to connect to"
+        required: false
+        default: 22
+      wp-root:
+        type: string
+        description: "Absolute path to the WordPress root on the remote server (must start with /)"
+        required: true
+      components:
+        type: string
+        description: "Newline-separated list of components to deploy, one per line in type:name format (e.g. plugins:my-plugin)"
+        required: true
+      releases-dir:
+        type: string
+        description: "Absolute path to the releases directory on the server. Defaults to a 'releases' sibling of wp-root when not set."
+        required: false
+        default: ""
+    secrets:
+      SSH_PRIVATE_KEY:
+        description: "SSH private key"
+        required: true
+      SMTP_SERVER:
+        description: "SMTP server for failure notifications"
+        required: false
+      SMTP_USERNAME:
+        description: "SMTP username"
+        required: false
+      SMTP_PASSWORD:
+        description: "SMTP password"
+        required: false
+      NOTIFY_EMAIL:
+        description: "Override recipient email (defaults to #uptime_alerts Slack channel)"
+        required: false
+
+concurrency:
+  group: atomic-deploy-${{ inputs.ssh-host }}-${{ inputs.wp-root }}
+  cancel-in-progress: false
+
+jobs:
+  atomic_deploy:
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Compute short SHA
+        id: sha
+        shell: bash
+        run: echo "short_sha=${GITHUB_SHA:0:8}" >> $GITHUB_OUTPUT
+
+      - uses: pie/.github/actions/add-ssh-config@feature/add-symlink-and-sql-flows
+        name: Add SSH key to runner
+        with:
+          ssh-user: ${{inputs.ssh-user}}
+          ssh-port: ${{inputs.ssh-port}}
+          ssh-host: ${{inputs.ssh-host}}
+          ssh-key: ${{secrets.SSH_PRIVATE_KEY}}
+
+      - uses: pie/.github/actions/swap-and-migrate@feature/add-symlink-and-sql-flows
+        name: Run atomic swap and migrations
+        with:
+          wp-root: ${{inputs.wp-root}}
+          git-sha: ${{ steps.sha.outputs.short_sha }}
+          repo-name: ${{github.event.repository.name}}
+          components: ${{inputs.components}}
+          releases-dir: ${{inputs.releases-dir}}
+          notify-email: ${{secrets.NOTIFY_EMAIL || 'uptime_alerts-aaaaabagrbjrarifmw25mquney@piecode.slack.com'}}
+          smtp-server: ${{secrets.SMTP_SERVER}}
+          smtp-username: ${{secrets.SMTP_USERNAME}}
+          smtp-password: ${{secrets.SMTP_PASSWORD}}

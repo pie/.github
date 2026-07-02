@@ -76,7 +76,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
-      - uses: pie/.github/actions/add-ssh-config@main
+      - uses: pie/.github/actions/add-ssh-config@feature/add-symlink-and-sql-flows
         name: Add SSH Key to this runner
         if: ${{ inputs.sshpass == 'false' }}
         with:
@@ -85,7 +85,7 @@ jobs:
           ssh-host: ${{inputs.ssh-host}}
           ssh-key: ${{secrets.SSH_PRIVATE_KEY}}
 
-      - uses: pie/.github/actions/add-ssh-pass@main
+      - uses: pie/.github/actions/add-ssh-pass@feature/add-symlink-and-sql-flows
         name: Add SSH Pass to this runner
         if: ${{ inputs.sshpass != 'false' }}
         with:
@@ -94,7 +94,7 @@ jobs:
           ssh-host: ${{inputs.ssh-host}}
           ssh-pass: ${{secrets.SSH_PRIVATE_KEY}}
 
-      - uses: pie/.github/actions/deploy-via-rsync@main
+      - uses: pie/.github/actions/deploy-via-rsync@feature/add-symlink-and-sql-flows
         name: Deploying to  ${{inputs.destination-path}} on remote
         with:
           ssh-port: ${{inputs.ssh-port}}
