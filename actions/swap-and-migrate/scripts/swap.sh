@@ -22,7 +22,6 @@ NEW_RELEASE_DIR="$RELEASES_DIR/$GIT_SHA"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MIGRATE_SCRIPT="$SCRIPT_DIR/migrate.sh"
 QUERIES_DIR="$SCRIPT_DIR/queries"
-REPO_SLUG="$(printf '%s' "$REPO_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g' | cut -c1-53)"
 HAS_MIGRATIONS=false
 MAINTENANCE_ACTIVE=false
 SAFE_TO_RECOVER=true
@@ -86,6 +85,26 @@ if [[ ! "$CURRENT_PREFIX" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
     echo "ERROR: table_prefix '$CURRENT_PREFIX' contains unexpected characters — refusing to use it in SQL. Expected only letters, digits, and underscores, not starting with a digit." >&2
     exit 1
 fi
+
+# Derived unconditionally (not just when migrations are pending) so its
+# length is known before REPO_SLUG below is sized against it — NEW_PREFIX
+# (used later if migrations do run) is always this plus an 8-char short SHA
+# and "_", making it the longer of the two prefixes this repo's migrations
+# table name can be built with.
+BASE_PREFIX=$(printf '%s' "$CURRENT_PREFIX" | sed 's/[0-9a-f]\{8\}_$//')
+
+# REPO_SLUG is embedded into the migrations tracking table name under both
+# CURRENT_PREFIX and NEW_PREFIX. MySQL caps identifiers at 64 characters, so
+# cap REPO_SLUG to whatever's left after the longer (NEW_PREFIX) case,
+# instead of a flat cut that ignores the prefix entirely — a flat cap left
+# room to overflow 64 as soon as a repo name pushed REPO_SLUG near its limit.
+MIGRATIONS_SUFFIX="_migrations"
+MAX_SLUG_LEN=$(( 64 - ${#BASE_PREFIX} - ${#SHORT_SHA} - 1 - ${#MIGRATIONS_SUFFIX} ))
+if [ "$MAX_SLUG_LEN" -lt 1 ]; then
+    echo "ERROR: table_prefix '$CURRENT_PREFIX' is too long to derive a migrations table name within MySQL's 64-character identifier limit." >&2
+    exit 1
+fi
+REPO_SLUG="$(printf '%s' "$REPO_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g' | cut -c1-"$MAX_SLUG_LEN")"
 
 LIVE_MIGRATIONS_TABLE="${CURRENT_PREFIX}${REPO_SLUG}_migrations"
 
@@ -163,10 +182,9 @@ fi
 
 if [ "$HAS_MIGRATIONS" = true ]; then
 
-    # Derive the new prefix from the stable base — strip any previous atomic-deploy
-    # SHA suffix (8 hex chars + _) so the base never grows across repeated deploys.
+    # BASE_PREFIX was already derived above (stable base with any previous
+    # atomic-deploy SHA suffix stripped) so REPO_SLUG could be sized against it.
     # e.g. wp_ -> wp_abc12345_; foo_abc12345_ -> foo_ -> foo_def67890_
-    BASE_PREFIX=$(printf '%s' "$CURRENT_PREFIX" | sed 's/[0-9a-f]\{8\}_$//')
     NEW_PREFIX="${BASE_PREFIX}${SHORT_SHA}_"
     NEW_MIGRATIONS_TABLE="${NEW_PREFIX}${REPO_SLUG}_migrations"
     log "Table prefix: '$CURRENT_PREFIX' -> '$NEW_PREFIX'"
