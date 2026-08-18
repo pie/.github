@@ -171,6 +171,63 @@ if [ "$HAS_MIGRATIONS" = true ]; then
     wp maintenance-mode activate --path="$WP_ROOT"
     MAINTENANCE_ACTIVE=true
 
+    # ------------------------------------------------------------------
+    # Dry run: validate pending migration patches before spending time on
+    # a backup and the full data clone below. Patches are applied to
+    # structure-only clones of the live tables (columns/indexes, no rows)
+    # under a throwaway prefix, then those clones are dropped immediately.
+    # Live data and the real NEW_PREFIX clone are untouched either way —
+    # a data-dependent patch (e.g. an UPDATE matching on row content) can
+    # still pass here and fail for other reasons later, since no rows
+    # exist yet to match against.
+    # ------------------------------------------------------------------
+    log "Dry run: validating ${#PENDING_FILES[@]} pending migration(s) against a structure-only clone"
+
+    DRYRUN_PREFIX="dryrun_${SHORT_SHA}_"
+    DRYRUN_SOURCE_TABLES=$(wp db query \
+        "SELECT table_name FROM information_schema.tables \
+         WHERE table_schema = DATABASE() \
+         AND LEFT(table_name, CHAR_LENGTH('${CURRENT_PREFIX}')) = '${CURRENT_PREFIX}'" \
+        --path="$WP_ROOT" --skip-column-names)
+
+    set +e
+    DRYRUN_FAILED=false
+
+    # Clear any remnants from a previous failed attempt at this SHA, then clone structure only.
+    while IFS= read -r TABLE; do
+        [ -z "$TABLE" ] && continue
+        DRYRUN_TABLE="${DRYRUN_PREFIX}${TABLE#$CURRENT_PREFIX}"
+        wp db query "DROP TABLE IF EXISTS \`$DRYRUN_TABLE\`" --path="$WP_ROOT" || true
+        wp db query "CREATE TABLE \`$DRYRUN_TABLE\` LIKE \`$TABLE\`" --path="$WP_ROOT" || DRYRUN_FAILED=true
+    done <<< "$DRYRUN_SOURCE_TABLES"
+
+    if [ "$DRYRUN_FAILED" = false ]; then
+        for SQL_FILE in "${PENDING_FILES[@]}"; do
+            FILENAME=$(basename "$SQL_FILE")
+            log "Dry run: applying $FILENAME"
+            if ! sed "s/__WP_PREFIX__/${DRYRUN_PREFIX}/g" "$SQL_FILE" | wp db query --path="$WP_ROOT"; then
+                echo "ERROR: Dry run failed applying $FILENAME" >&2
+                DRYRUN_FAILED=true
+                break
+            fi
+        done
+    fi
+
+    log "Dry run: cleaning up scratch tables"
+    while IFS= read -r TABLE; do
+        [ -z "$TABLE" ] && continue
+        DRYRUN_TABLE="${DRYRUN_PREFIX}${TABLE#$CURRENT_PREFIX}"
+        wp db query "DROP TABLE IF EXISTS \`$DRYRUN_TABLE\`" --path="$WP_ROOT" || true
+    done <<< "$DRYRUN_SOURCE_TABLES"
+    set -e
+
+    if [ "$DRYRUN_FAILED" = true ]; then
+        echo "ERROR: Dry run detected a migration failure — bailing out before the database backup. No live data was touched." >&2
+        exit 1
+    fi
+
+    log "Dry run passed"
+
     BACKUP_DIR="$(dirname "$RELEASES_DIR")/db-backups"
     mkdir -p "$BACKUP_DIR"
     BACKUP_FILE="$BACKUP_DIR/pre_deploy_${SHORT_SHA}_$(date +%Y%m%d%H%M%S).sql"
