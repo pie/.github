@@ -301,6 +301,25 @@ if [ "$HAS_MIGRATIONS" = true ]; then
     # prefix, since rewriting arbitrary SQL text safely isn't possible here.
     log "Recreating foreign keys on new prefix tables"
 
+    # wp db query falls back to printing a generic "Success: Query succeeded"
+    # status line to stdout when a SELECT matches zero rows, instead of
+    # nothing — so an empty result from the DDL-building query below can't be
+    # told apart from real output just by checking for a non-empty capture.
+    # COUNT(*) always returns exactly one real row, zero matches included,
+    # so gate on that first and only build/run the DDL query when it's certain
+    # to have actual rows to return.
+    FK_COUNT=$(wp db query \
+        "SELECT COUNT(*) FROM (
+             SELECT kcu.TABLE_NAME
+             FROM information_schema.KEY_COLUMN_USAGE kcu
+             WHERE kcu.CONSTRAINT_SCHEMA = DATABASE()
+               AND kcu.REFERENCED_TABLE_NAME IS NOT NULL
+               AND LEFT(kcu.TABLE_NAME, CHAR_LENGTH('${CURRENT_PREFIX}')) = '${CURRENT_PREFIX}'
+             GROUP BY kcu.TABLE_NAME, kcu.CONSTRAINT_NAME
+         ) fk_count" \
+        --path="$WP_ROOT" --skip-column-names)
+
+    if [ "$FK_COUNT" -gt 0 ]; then
     FK_DDL=$(wp db query \
         "SELECT CONCAT(
              'ALTER TABLE \`', new_table, '\` ADD CONSTRAINT \`', new_constraint, '\` ',
@@ -330,12 +349,18 @@ if [ "$HAS_MIGRATIONS" = true ]; then
          ) fk" \
         --path="$WP_ROOT" --skip-column-names)
 
-    if [ -n "$FK_DDL" ]; then
         printf '%s\n' "$FK_DDL" | wp db query --path="$WP_ROOT"
     fi
 
     log "Recreating triggers on new prefix tables"
 
+    TRIGGER_COUNT=$(wp db query \
+        "SELECT COUNT(*) FROM information_schema.TRIGGERS
+         WHERE TRIGGER_SCHEMA = DATABASE()
+           AND LEFT(EVENT_OBJECT_TABLE, CHAR_LENGTH('${CURRENT_PREFIX}')) = '${CURRENT_PREFIX}'" \
+        --path="$WP_ROOT" --skip-column-names)
+
+    if [ "$TRIGGER_COUNT" -gt 0 ]; then
     # A trigger body is often a multi-statement BEGIN...END block, which has
     # its own semicolons — piped through mysql's stdin (as wp db query does
     # here), those would otherwise get split as separate top-level statements
@@ -354,7 +379,6 @@ if [ "$HAS_MIGRATIONS" = true ]; then
            AND LEFT(EVENT_OBJECT_TABLE, CHAR_LENGTH('${CURRENT_PREFIX}')) = '${CURRENT_PREFIX}'" \
         --path="$WP_ROOT" --skip-column-names)
 
-    if [ -n "$TRIGGER_DDL" ]; then
         printf 'DELIMITER $$\n%s\nDELIMITER ;\n' "$TRIGGER_DDL" | wp db query --path="$WP_ROOT"
     fi
 
