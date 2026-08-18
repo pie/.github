@@ -42,11 +42,32 @@ runs:
       shell: bash
       env:
         WP_ROOT: ${{ inputs.wp-root }}
+        RELEASES_DIR_INPUT: ${{ inputs.releases-dir }}
       run: |
         if [[ "$WP_ROOT" != '/'* ]]; then
           echo "Error: wp-root must be an absolute path starting with / (e.g. /home/piecode/site/public_html)." >&2
           exit 1
         fi
+
+        # releases-dir has no host-agnostic safe default to guess — different hosts nest
+        # wp-root differently (e.g. WP Engine's docroot has no private parent to fall back
+        # to). What must always hold, regardless of host layout, is that neither the
+        # releases dir nor the db-backups dir derived from it ends up web-accessible.
+        if [ -n "$RELEASES_DIR_INPUT" ]; then
+          RELEASES_DIR="$RELEASES_DIR_INPUT"
+        else
+          RELEASES_DIR="$(dirname "$WP_ROOT")/releases"
+        fi
+        BACKUP_DIR="$(dirname "$RELEASES_DIR")/db-backups"
+
+        for DIR_TO_CHECK in "$RELEASES_DIR" "$BACKUP_DIR"; do
+          case "$DIR_TO_CHECK/" in
+            "$WP_ROOT/"*)
+              echo "Error: '$DIR_TO_CHECK' is inside wp-root ('$WP_ROOT') — release artifacts and database backups would be web-accessible. Set releases-dir to a path outside the web root." >&2
+              exit 1
+              ;;
+          esac
+        done
 
     - name: Upload swap scripts to server
       shell: bash
