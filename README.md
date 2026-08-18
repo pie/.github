@@ -14,7 +14,7 @@ Rsync jobs deploy each component to a release directory keyed by the commit SHA.
 
 1. Verifies WP-CLI can reach the database
 2. Checks for pending SQL migrations
-3. If any: enables maintenance mode → exports a database backup → copies live tables to a new `{base-prefix}{short-sha}_` prefix → runs migrations against the copy → updates usermeta keys and option names to the new prefix → switches `wp-config.php` to the new prefix → drops old tables
+3. If any: enables maintenance mode → dry-runs the pending migrations against structure-only clones of the live tables (no data, dropped immediately after) and bails out with maintenance mode deactivated if any fail → exports a database backup → copies live tables to a new `{base-prefix}{short-sha}_` prefix → runs migrations against the copy → updates usermeta keys and option names to the new prefix → switches `wp-config.php` to the new prefix → drops old tables
 4. Rsyncs each component from the release directory to a hidden staging path, then atomically renames it into place
 5. Prunes releases older than 1 prior
 
