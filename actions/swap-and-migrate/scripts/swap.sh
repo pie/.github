@@ -383,7 +383,7 @@ if [ "$HAS_MIGRATIONS" = true ]; then
     while IFS= read -r OLD_BACKUP; do
         log "  Removing $OLD_BACKUP"
         rm -f "$OLD_BACKUP" || log "WARN: Could not remove $OLD_BACKUP — manual cleanup may be needed"
-    done < <(find "$BACKUP_DIR" -maxdepth 1 -type f ! -name "$(basename "$BACKUP_FILE")")
+    done < <(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'pre_deploy_*.sql' ! -name "$(basename "$BACKUP_FILE")")
 fi
 
 log "Atomic deploy complete — $GIT_SHA is live"
