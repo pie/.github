@@ -64,7 +64,7 @@ runs:
   using: "composite"
   steps:
     - name: Check out the Repo
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Install Composer Dependencies if required
       if: ${{inputs.composer == 'true' }}
@@ -76,7 +76,7 @@ runs:
         
     - name: Install Node Dependencies if required
       if: ${{inputs.npm == 'true' }}
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v6
       with:
         node-version: ${{ inputs.node_version || matrix.node }}
 
@@ -85,6 +85,9 @@ runs:
       run: cd ${{inputs.working-directory}} && npm install && ${{inputs.npm-run-command}}
       shell: bash
 
+    # Replaces andstor/file-existence-action@v2 which targeted Node.js 20 (deprecated).
+    # Checks if a .rsyncignore file exists in the repo root and sets the EXCLUDE_FROM
+    # env variable accordingly — either pointing rsync at the ignore file, or leaving it empty.
     - name: Check for ignore file
       shell: bash
       run: |
