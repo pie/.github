@@ -100,7 +100,13 @@ runs:
     # site is running on the previous version.
     - name: Send failure notification — site recovered
       if: steps.swap.outcome == 'failure' && steps.swap.outputs.ssh_exit == '1' && inputs.smtp-server != '' && inputs.smtp-username != '' && inputs.smtp-password != '' && inputs.notify-email != ''
-      uses: dawidd6/action-send-mail@v3
+      # Pinned to a commit SHA rather than @v3 — this action runs with SMTP
+      # credentials as secrets, so a tag getting repointed (maintainer
+      # compromise or otherwise) would run different code with those
+      # credentials on the next deploy, with no diff to review here first.
+      # To intentionally pick up an update, resolve the new v3 tag to a SHA
+      # and replace both the hash and this comment.
+      uses: dawidd6/action-send-mail@4226df7daafa6fc901a43789c49bf7ab309066e7 # v3
       with:
         server_address: ${{ inputs.smtp-server }}
         server_port: 465
@@ -119,10 +125,16 @@ runs:
           <p><a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View workflow run for full log</a></p>
 
     # Exit code 2: failed after live changes began — site is in maintenance mode,
-    # wp-config.php or symlinks may be in a partially-updated state.
+    # wp-config.php's table_prefix or a component directory may be in a partially-updated state.
     - name: Send urgent notification — site in maintenance mode
       if: steps.swap.outcome == 'failure' && steps.swap.outputs.ssh_exit == '2' && inputs.smtp-server != '' && inputs.smtp-username != '' && inputs.smtp-password != '' && inputs.notify-email != ''
-      uses: dawidd6/action-send-mail@v3
+      # Pinned to a commit SHA rather than @v3 — this action runs with SMTP
+      # credentials as secrets, so a tag getting repointed (maintainer
+      # compromise or otherwise) would run different code with those
+      # credentials on the next deploy, with no diff to review here first.
+      # To intentionally pick up an update, resolve the new v3 tag to a SHA
+      # and replace both the hash and this comment.
+      uses: dawidd6/action-send-mail@4226df7daafa6fc901a43789c49bf7ab309066e7 # v3
       with:
         server_address: ${{ inputs.smtp-server }}
         server_port: 465

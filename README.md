@@ -6,11 +6,11 @@ This repository contains reusable workflows and composite actions for managing r
 
 ### Atomic Deploy
 
-Deploys components to a release directory keyed by the git commit SHA, then atomically swaps them into place and runs any pending database migrations. When migrations are pending, the database work and component swap are performed inside a maintenance window. When there are no pending migrations, components are swapped with no downtime. Supports rollback by resyncing the prior release back to the live directories; when migrations ran, the old prefix tables are dropped during deployment, so a full rollback requires restoring from the pre-deploy backup.
+Deploys components to a release directory keyed by the short (8-character) git commit SHA, then atomically swaps them into place and runs any pending database migrations. When migrations are pending, the database work and component swap are performed inside a maintenance window. When there are no pending migrations, components are swapped with no downtime. Supports rollback by resyncing the prior release back to the live directories; when migrations ran, the old prefix tables are dropped during deployment, so a full rollback requires restoring from the pre-deploy backup.
 
 **How it works:**
 
-Rsync jobs deploy each component to a release directory keyed by the commit SHA. Once all jobs complete, the `atomic_deploy` job SSH's in and runs `swap.sh`, which:
+Rsync jobs deploy each component to a release directory keyed by the short SHA (see the `setup` workflow's `short-sha` output). Once all jobs complete, the `atomic_deploy` job SSH's in and runs `swap.sh`, which:
 
 1. Verifies WP-CLI can reach the database
 2. Checks for pending SQL migrations
@@ -72,6 +72,8 @@ Before running this workflow, block public HTTP access to `releases/` and `db-ba
 - `SMTP_USERNAME`: SMTP username. Optional — set at organisation level.
 - `SMTP_PASSWORD`: SMTP password. Optional — set at organisation level.
 - `NOTIFY_EMAIL`: Override the notification recipient. Optional — defaults to `#uptime_alerts` Slack channel.
+
+Failure notifications are sent via [`dawidd6/action-send-mail`](https://github.com/dawidd6/action-send-mail), pinned to a commit SHA rather than `@v3` — it runs with the SMTP secrets above, so a moved tag would run different code with those credentials with no diff to review first. Bumping it is a deliberate action: resolve the new tag to a SHA and update both the workflow and its inline comment.
 
 **Example:**
 
