@@ -107,6 +107,17 @@ if [ "${#COMPONENTS[@]}" -eq 0 ]; then
     exit 1
 fi
 
+# TYPE and NAME are extracted from each entry below and built into paths that
+# are later passed to mv/rm -rf. Restricting to slug-safe characters up front
+# rules out a stray '/' or '..' steering those destructive calls outside
+# wp-content/, however the entry ended up malformed.
+for COMPONENT in "${COMPONENTS[@]}"; do
+    if [[ ! "$COMPONENT" =~ ^[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$ ]]; then
+        echo "ERROR: Invalid component entry '$COMPONENT' — expected type:name using only letters, digits, hyphens, and underscores." >&2
+        exit 1
+    fi
+done
+
 log "Validating component release paths"
 for COMPONENT in "${COMPONENTS[@]}"; do
     NAME="${COMPONENT##*:}"
