@@ -25,8 +25,10 @@ Failures are handled based on how far the deploy got:
 
 **Server directory structure:**
 
+`releases/` and `db-backups/` are created inside `wp-root` — not a sibling of it — because some hosts don't grant the deploy user write access above the web root. See **Requirements** below for the access rule this requires.
+
 ```
-/home/piecode/site/
+/home/piecode/site/public_html/     ← WordPress root
 ├── releases/
 │   ├── {current-sha}/          ← new deploy lands here via rsync
 │   │   ├── my-plugin/
@@ -34,13 +36,25 @@ Failures are handled based on how far the deploy got:
 │   │   └── migrations/
 │   └── {previous-sha}/         ← kept for rollback
 ├── db-backups/                  ← pre-migration exports (when migrations run)
-└── public_html/                 ← WordPress root
-    └── wp-content/
-        ├── plugins/
-        │   └── my-plugin/      ← files copied from releases/{sha}/my-plugin/
-        └── themes/
-            └── my-theme/       ← files copied from releases/{sha}/my-theme/
+└── wp-content/
+    ├── plugins/
+    │   └── my-plugin/      ← files copied from releases/{sha}/my-plugin/
+    └── themes/
+        └── my-theme/       ← files copied from releases/{sha}/my-theme/
 ```
+
+**Requirements:**
+
+Before running this workflow, block public HTTP access to `releases/` and `db-backups/` under `wp-root`:
+
+- **Apache** — create `releases/.htaccess` and `db-backups/.htaccess`, each containing:
+  ```apache
+  Require all denied
+  ```
+- **Nginx** — add to the site's server block:
+  ```nginx
+  location ~ ^/(releases|db-backups)/ { deny all; }
+  ```
 
 **Inputs:**
 
@@ -75,7 +89,7 @@ jobs:
     uses: pie/.github/.github/workflows/deploy.yaml@main
     with:
       ssh-host: example.com
-      destination-path: /home/piecode/site/releases/${{ needs.setup.outputs.short-sha }}/my-plugin
+      destination-path: /home/piecode/site/public_html/releases/${{ needs.setup.outputs.short-sha }}/my-plugin
       npm: true
     secrets:
       SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
@@ -85,7 +99,7 @@ jobs:
     uses: pie/.github/.github/workflows/deploy.yaml@main
     with:
       ssh-host: example.com
-      destination-path: /home/piecode/site/releases/${{ needs.setup.outputs.short-sha }}/my-theme
+      destination-path: /home/piecode/site/public_html/releases/${{ needs.setup.outputs.short-sha }}/my-theme
     secrets:
       SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
 
@@ -95,7 +109,7 @@ jobs:
     with:
       ssh-host: example.com
       source-path: migrations/
-      destination-path: /home/piecode/site/releases/${{ needs.setup.outputs.short-sha }}/migrations
+      destination-path: /home/piecode/site/public_html/releases/${{ needs.setup.outputs.short-sha }}/migrations
     secrets:
       SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
 
@@ -105,7 +119,6 @@ jobs:
     with:
       ssh-host: example.com
       wp-root: /home/piecode/site/public_html
-      releases-dir: /home/piecode/site/releases
       components: |
         plugins:my-plugin
         themes:my-theme
@@ -122,7 +135,7 @@ If no migrations ran, resync each component from the prior release back to the l
 
 ```bash
 WP_ROOT=/home/piecode/site/public_html
-RELEASES=/home/piecode/site/releases
+RELEASES=/home/piecode/site/public_html/releases
 PRIOR=$(ls -dt "$RELEASES"/*/  | sed -n '2p')
 
 rsync -a --delete "${PRIOR}my-plugin/" "$WP_ROOT/wp-content/plugins/my-plugin/"

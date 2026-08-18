@@ -17,7 +17,7 @@ set -euo pipefail
 # ==============================================================================
 
 SHORT_SHA="${GIT_SHA:0:8}"
-RELEASES_DIR="${RELEASES_DIR:-$(dirname "$WP_ROOT")/releases}"
+RELEASES_DIR="${RELEASES_DIR:-$WP_ROOT/releases}"
 NEW_RELEASE_DIR="$RELEASES_DIR/$GIT_SHA"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MIGRATE_SCRIPT="$SCRIPT_DIR/migrate.sh"
