@@ -354,8 +354,9 @@ done
 if [ "$MAINTENANCE_ACTIVE" = true ]; then
     log "Disabling maintenance mode"
     if ! wp maintenance-mode deactivate --path="$WP_ROOT"; then
-        log "WARN: Failed to deactivate maintenance mode — run manually:"
-        log "WARN:   wp maintenance-mode deactivate --path=\"$WP_ROOT\""
+        log "ERROR: Failed to deactivate maintenance mode — run manually:"
+        log "ERROR:   wp maintenance-mode deactivate --path=\"$WP_ROOT\""
+        exit 2
     fi
     MAINTENANCE_ACTIVE=false
 fi
