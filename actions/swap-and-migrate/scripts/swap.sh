@@ -351,4 +351,17 @@ done < <(find "$RELEASES_DIR" -maxdepth 1 -mindepth 1 -type d \
     ! -name "$GIT_SHA" ! -name "initial" \
     -printf '%T@ %p\n' | sort -rn | tail -n +2 | cut -d' ' -f2-)
 
+# ==============================================================================
+# Step 7: Prune old database backups — keep only this deploy's backup
+# ==============================================================================
+
+if [ "$HAS_MIGRATIONS" = true ]; then
+    log "Pruning old database backups — keeping only $(basename "$BACKUP_FILE")"
+
+    while IFS= read -r OLD_BACKUP; do
+        log "  Removing $OLD_BACKUP"
+        rm -f "$OLD_BACKUP" || log "WARN: Could not remove $OLD_BACKUP — manual cleanup may be needed"
+    done < <(find "$BACKUP_DIR" -maxdepth 1 -type f ! -name "$(basename "$BACKUP_FILE")")
+fi
+
 log "Atomic deploy complete — $GIT_SHA is live"

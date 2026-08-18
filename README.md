@@ -17,6 +17,7 @@ Rsync jobs deploy each component to a release directory keyed by the commit SHA.
 3. If any: enables maintenance mode → dry-runs the pending migrations against structure-only clones of the live tables (no data, dropped immediately after) and bails out with maintenance mode deactivated if any fail → exports a database backup → copies live tables to a new `{base-prefix}{short-sha}_` prefix → runs migrations against the copy → updates usermeta keys and option names to the new prefix → switches `wp-config.php` to the new prefix → drops old tables
 4. Rsyncs each component from the release directory to a hidden staging path, then atomically renames it into place
 5. Prunes releases older than 1 prior
+6. If migrations ran, prunes older database backups, keeping only the one from this deploy
 
 Failures are handled based on how far the deploy got:
 
@@ -35,7 +36,7 @@ Failures are handled based on how far the deploy got:
 │   │   ├── my-theme/
 │   │   └── migrations/
 │   └── {previous-sha}/         ← kept for rollback
-├── db-backups/                  ← pre-migration exports (when migrations run)
+├── db-backups/                  ← this deploy's pre-migration export only (when migrations run)
 └── wp-content/
     ├── plugins/
     │   └── my-plugin/      ← files copied from releases/{sha}/my-plugin/
