@@ -76,6 +76,17 @@ log "Verifying database connectivity"
 wp db check --path="$WP_ROOT"
 
 CURRENT_PREFIX=$(wp config get table_prefix --path="$WP_ROOT")
+
+# CURRENT_PREFIX is interpolated into SQL string literals and identifiers below
+# (directly, and via BASE_PREFIX/NEW_PREFIX derived from it). WordPress's own
+# installer already restricts table_prefix to this character set — enforcing
+# it here means a misconfigured wp-config.php fails cleanly instead of
+# corrupting a query or behaving like injected SQL.
+if [[ ! "$CURRENT_PREFIX" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+    echo "ERROR: table_prefix '$CURRENT_PREFIX' contains unexpected characters — refusing to use it in SQL. Expected only letters, digits, and underscores, not starting with a digit." >&2
+    exit 1
+fi
+
 LIVE_MIGRATIONS_TABLE="${CURRENT_PREFIX}${REPO_SLUG}_migrations"
 
 if [ ! -d "$NEW_RELEASE_DIR" ]; then
