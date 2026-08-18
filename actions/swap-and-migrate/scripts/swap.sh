@@ -354,8 +354,9 @@ done
 if [ "$MAINTENANCE_ACTIVE" = true ]; then
     log "Disabling maintenance mode"
     if ! wp maintenance-mode deactivate --path="$WP_ROOT"; then
-        log "WARN: Failed to deactivate maintenance mode — run manually:"
-        log "WARN:   wp maintenance-mode deactivate --path=\"$WP_ROOT\""
+        log "ERROR: Failed to deactivate maintenance mode — run manually:"
+        log "ERROR:   wp maintenance-mode deactivate --path=\"$WP_ROOT\""
+        exit 2
     fi
     MAINTENANCE_ACTIVE=false
 fi
@@ -383,7 +384,7 @@ if [ "$HAS_MIGRATIONS" = true ]; then
     while IFS= read -r OLD_BACKUP; do
         log "  Removing $OLD_BACKUP"
         rm -f "$OLD_BACKUP" || log "WARN: Could not remove $OLD_BACKUP — manual cleanup may be needed"
-    done < <(find "$BACKUP_DIR" -maxdepth 1 -type f ! -name "$(basename "$BACKUP_FILE")")
+    done < <(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'pre_deploy_*.sql' ! -name "$(basename "$BACKUP_FILE")")
 fi
 
 log "Atomic deploy complete — $GIT_SHA is live"
