@@ -272,6 +272,74 @@ if [ "$HAS_MIGRATIONS" = true ]; then
         wp db query "INSERT INTO \`$NEW_TABLE\` SELECT * FROM \`$TABLE\`" --path="$WP_ROOT"
     done <<< "$TABLES"
 
+    # CREATE TABLE ... LIKE (above) copies columns and indexes but not foreign
+    # key constraints or triggers, so both are rebuilt here from
+    # information_schema before the old tables are dropped for good. Names
+    # get a "_$SHORT_SHA" suffix — constraint/trigger names are unique per
+    # schema and the old ones are still around until the drop step below.
+    # Trigger bodies are copied verbatim: one that only touches its own table
+    # (the common case, via NEW/OLD) is fully correct, but a body that
+    # references another prefixed table by name still points at the old
+    # prefix, since rewriting arbitrary SQL text safely isn't possible here.
+    log "Recreating foreign keys on new prefix tables"
+
+    FK_DDL=$(wp db query \
+        "SELECT CONCAT(
+             'ALTER TABLE \`', new_table, '\` ADD CONSTRAINT \`', new_constraint, '\` ',
+             'FOREIGN KEY (', cols, ') REFERENCES \`', new_ref_table, '\` (', ref_cols, ') ',
+             'ON DELETE ', delete_rule, ' ON UPDATE ', update_rule, ';'
+         )
+         FROM (
+             SELECT
+                 CONCAT('${NEW_PREFIX}', SUBSTRING(kcu.TABLE_NAME, CHAR_LENGTH('${CURRENT_PREFIX}') + 1)) AS new_table,
+                 CONCAT(SUBSTRING(kcu.CONSTRAINT_NAME, 1, 54), '_${SHORT_SHA}') AS new_constraint,
+                 GROUP_CONCAT(CONCAT('\`', kcu.COLUMN_NAME, '\`') ORDER BY kcu.ORDINAL_POSITION) AS cols,
+                 CASE WHEN LEFT(kcu.REFERENCED_TABLE_NAME, CHAR_LENGTH('${CURRENT_PREFIX}')) = '${CURRENT_PREFIX}'
+                      THEN CONCAT('${NEW_PREFIX}', SUBSTRING(kcu.REFERENCED_TABLE_NAME, CHAR_LENGTH('${CURRENT_PREFIX}') + 1))
+                      ELSE kcu.REFERENCED_TABLE_NAME END AS new_ref_table,
+                 GROUP_CONCAT(CONCAT('\`', kcu.REFERENCED_COLUMN_NAME, '\`') ORDER BY kcu.ORDINAL_POSITION) AS ref_cols,
+                 rc.DELETE_RULE AS delete_rule,
+                 rc.UPDATE_RULE AS update_rule
+             FROM information_schema.KEY_COLUMN_USAGE kcu
+             JOIN information_schema.REFERENTIAL_CONSTRAINTS rc
+                 ON rc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA
+                 AND rc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
+                 AND rc.TABLE_NAME = kcu.TABLE_NAME
+             WHERE kcu.CONSTRAINT_SCHEMA = DATABASE()
+               AND kcu.REFERENCED_TABLE_NAME IS NOT NULL
+               AND LEFT(kcu.TABLE_NAME, CHAR_LENGTH('${CURRENT_PREFIX}')) = '${CURRENT_PREFIX}'
+             GROUP BY kcu.TABLE_NAME, kcu.CONSTRAINT_NAME, kcu.REFERENCED_TABLE_NAME, rc.DELETE_RULE, rc.UPDATE_RULE
+         ) fk" \
+        --path="$WP_ROOT" --skip-column-names)
+
+    if [ -n "$FK_DDL" ]; then
+        printf '%s\n' "$FK_DDL" | wp db query --path="$WP_ROOT"
+    fi
+
+    log "Recreating triggers on new prefix tables"
+
+    # A trigger body is often a multi-statement BEGIN...END block, which has
+    # its own semicolons — piped through mysql's stdin (as wp db query does
+    # here), those would otherwise get split as separate top-level statements
+    # the same way they would from a plain .sql file. Ending each generated
+    # statement in '$$' instead of ';', bracketed by DELIMITER changes, is
+    # MySQL's own documented fix for exactly this.
+    TRIGGER_DDL=$(wp db query \
+        "SELECT CONCAT(
+             'CREATE TRIGGER \`', SUBSTRING(TRIGGER_NAME, 1, 54), '_${SHORT_SHA}\` ',
+             ACTION_TIMING, ' ', EVENT_MANIPULATION, ' ON \`',
+             '${NEW_PREFIX}', SUBSTRING(EVENT_OBJECT_TABLE, CHAR_LENGTH('${CURRENT_PREFIX}') + 1), '\` ',
+             'FOR EACH ROW ', ACTION_STATEMENT, '\$\$'
+         )
+         FROM information_schema.TRIGGERS
+         WHERE TRIGGER_SCHEMA = DATABASE()
+           AND LEFT(EVENT_OBJECT_TABLE, CHAR_LENGTH('${CURRENT_PREFIX}')) = '${CURRENT_PREFIX}'" \
+        --path="$WP_ROOT" --skip-column-names)
+
+    if [ -n "$TRIGGER_DDL" ]; then
+        printf 'DELIMITER $$\n%s\nDELIMITER ;\n' "$TRIGGER_DDL" | wp db query --path="$WP_ROOT"
+    fi
+
     log "Applying migrations against new prefix '$NEW_PREFIX'"
     WP_ROOT="$WP_ROOT" \
     MIGRATIONS_TABLE="$NEW_MIGRATIONS_TABLE" \
