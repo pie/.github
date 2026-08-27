@@ -76,7 +76,6 @@ runs:
         ssh server "mkdir -p $MIGRATIONS_DIR_Q"
         scp "$GITHUB_ACTION_PATH/scripts/swap.sh" "server:$MIGRATIONS_DIR/swap.sh"
         scp "$GITHUB_ACTION_PATH/scripts/migrate.sh" "server:$MIGRATIONS_DIR/migrate.sh"
-        scp "$GITHUB_ACTION_PATH/scripts/rollback.sh" "server:$MIGRATIONS_DIR/rollback.sh"
         printf '%s' "$DEPLOY_COMPONENTS" | ssh server "cat > $MIGRATIONS_DIR_Q/components.txt"
 
     - name: Run atomic swap and migrations
@@ -160,10 +159,11 @@ runs:
         html_body: |
           <h2>&#9888;&#65039; Urgent: site is in maintenance mode</h2>
           <p>The deploy failed after live changes began. <strong>The site is currently in maintenance mode and requires manual intervention.</strong></p>
-          <p>Migrations run directly against the live tables with no clone or backup to fall back to — before deactivating maintenance mode, SSH into the server and verify:</p>
+          <p>Migrations run directly against the live tables with no clone or backup to fall back to. Before deactivating maintenance mode:</p>
           <ol>
             <li>Check which migrations were recorded as applied, and compare against the pending SQL files in this release's <code>migrations/queries/</code> to see which one likely failed:<br><code>wp db query "SELECT * FROM {prefix}{repo}_migrations ORDER BY id DESC LIMIT 5" --path="${{ inputs.wp-root }}"</code></li>
             <li>Check component directories in wp-content are in a consistent state:<br><code>ls -la ${{ inputs.wp-root }}/wp-content/plugins/ ${{ inputs.wp-root }}/wp-content/themes/</code></li>
+            <li>If the migration that failed had already applied some of its batch and you want to revert them, run the <strong>Rollback Migrations</strong> workflow from the Actions tab rather than SSHing in — it reverts the most recent batch using each migration's <code>-- +migrate Down</code> section.</li>
           </ol>
           <p>Once the state is confirmed safe, deactivate maintenance mode:<br><code>wp maintenance-mode deactivate --path="${{ inputs.wp-root }}"</code></p>
           <p><strong>Repository:</strong> ${{ github.repository }}<br>

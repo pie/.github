@@ -2,21 +2,11 @@
 set -euo pipefail
 
 # ==============================================================================
-# rollback.sh — Manual rollback of the most recent migration batch
+# rollback.sh — Reverts the most recently applied batch of database migrations
 #
-# Uploaded to the server by the swap-and-migrate action on every deploy,
-# alongside swap.sh and migrate.sh, at releases/{sha}/migrations/rollback.sh —
-# it is never run automatically. Invoke it by hand over SSH when you need to
-# undo the DB changes from the most recent deploy:
-#
-#   env WP_ROOT=/path/to/site \
-#       MIGRATIONS_TABLE=wp_myrepo_migrations \
-#       TARGET_PREFIX=wp_ \
-#       bash releases/<sha>/migrations/rollback.sh
-#
-# WP_ROOT/MIGRATIONS_TABLE/TARGET_PREFIX are the same values swap.sh used for
-# that deploy — check its log output, or derive them the same way swap.sh
-# does (table_prefix + sanitised repo name + "_migrations").
+# Uploaded fresh to the server by the rollback-migrations action each time it
+# runs — this is not part of a regular deploy, and nothing is left behind
+# afterward.
 #
 # Runs directly against the live tables — same as migrate.sh, there is no
 # clone or backup here. Only migrations whose file has a "-- +migrate Down"
@@ -31,10 +21,11 @@ set -euo pipefail
 # Down only reverses schema shape, not data a migration deleted or
 # transformed — restore from your own backup for that.
 #
-# Injected (same as migrate.sh):
-#   WP_ROOT           Absolute path to the WordPress root
-#   MIGRATIONS_TABLE  Tracking table name
-#   TARGET_PREFIX     Table prefix to target
+# Injected by the action:
+#   WP_ROOT    Absolute path to the WordPress root
+#   REPO_NAME  GitHub repository name — the migrations table name is derived
+#              from this the same way swap.sh does, so this always finds the
+#              same tracking table a deploy would have used.
 # ==============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -60,6 +51,38 @@ extract_section() {
         awk '/^-- \+migrate Up[[:space:]]*$/{flag=1; next} /^-- \+migrate Down[[:space:]]*$/{flag=0} flag' "$file"
     fi
 }
+
+if [[ "$WP_ROOT" != '/'* ]]; then
+    echo "ERROR: WP_ROOT must be an absolute path starting with / (e.g. /home/piecode/site/public_html)." >&2
+    exit 1
+fi
+
+if ! command -v wp &>/dev/null; then
+    echo "ERROR: wp-cli is not available on this server" >&2
+    exit 1
+fi
+
+log "Verifying database connectivity"
+wp db check --path="$WP_ROOT"
+
+TARGET_PREFIX=$(wp config get table_prefix --path="$WP_ROOT")
+
+# Same validation as swap.sh — TARGET_PREFIX is interpolated into SQL below.
+if [[ ! "$TARGET_PREFIX" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+    echo "ERROR: table_prefix '$TARGET_PREFIX' contains unexpected characters — refusing to use it in SQL. Expected only letters, digits, and underscores, not starting with a digit." >&2
+    exit 1
+fi
+
+# Same derivation as swap.sh, so this always resolves to the same tracking
+# table a deploy would have used.
+MIGRATIONS_SUFFIX="_migrations"
+MAX_SLUG_LEN=$(( 64 - ${#TARGET_PREFIX} - ${#MIGRATIONS_SUFFIX} ))
+if [ "$MAX_SLUG_LEN" -lt 1 ]; then
+    echo "ERROR: table_prefix '$TARGET_PREFIX' is too long to derive a migrations table name within MySQL's 64-character identifier limit." >&2
+    exit 1
+fi
+REPO_SLUG="$(printf '%s' "$REPO_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g' | cut -c1-"$MAX_SLUG_LEN")"
+MIGRATIONS_TABLE="${TARGET_PREFIX}${REPO_SLUG}_migrations"
 
 if [ ! -d "$QUERIES_DIR" ]; then
     log "No queries directory found — nothing to roll back"

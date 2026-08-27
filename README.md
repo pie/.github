@@ -154,12 +154,58 @@ wp cache flush --path="$WP_ROOT"
 
 If migrations ran, rolling back the code alone leaves it running against the migrated schema, which may or may not be compatible. Two options, in order of preference:
 
-1. **`rollback.sh`**, if the migrations that ran define a `-- +migrate Down` section — see **SQL Migrations** below. It's already on the server at `releases/{sha}/migrations/rollback.sh` (uploaded on every deploy, nothing extra to fetch) and only reverses schema shape, not data a migration deleted or transformed.
-2. **Restore from your own pre-deploy backup** — required for anything `rollback.sh` can't undo (a migration with no Down section, or one that changed data). See **Migrations run against live tables** above — this workflow doesn't take a backup for you.
+1. **Run the [Rollback Migrations](#rollback-migrations) workflow**, if the migrations that ran define a `-- +migrate Down` section — see **SQL Migrations** below. It only reverses schema shape, not data a migration deleted or transformed.
+2. **Restore from your own pre-deploy backup** — required for anything the rollback can't undo (a migration with no Down section, or one that changed data). See **Migrations run against live tables** above — this workflow doesn't take a backup for you.
 
 If the failure notification subject says *URGENT: Site in maintenance mode*, the deploy failed after migrations had already started. Before deactivating maintenance mode, verify which migrations were recorded as applied and that component directories are in a consistent state — the notification email includes the exact commands to run.
 
-**Cleaning up after a manual recovery:** the `releases/{sha}/` directory for a failed deploy (its component copies, `swap.sh`, `migrate.sh`, `rollback.sh`, `queries/`) is only pruned by a *later successful* deploy's own pruning step (Step 5) — a run that stops for manual recovery never reaches it. In practice this self-heals within a deploy or two once you're back to shipping normally, since pruning keeps only the current release plus one prior regardless of which ones succeeded. If you're not deploying again soon and want it gone immediately, it's safe to `rm -rf releases/{sha}/` yourself once you're done with its `rollback.sh` — nothing else on the server references that directory.
+**Cleaning up after a manual recovery:** the `releases/{sha}/` directory for a failed deploy (its component copies, `swap.sh`, `migrate.sh`, `queries/`) is only pruned by a *later successful* deploy's own pruning step (Step 5) — a run that stops for manual recovery never reaches it. In practice this self-heals within a deploy or two once you're back to shipping normally, since pruning keeps only the current release plus one prior regardless of which ones succeeded. If you're not deploying again soon and want it gone immediately, it's safe to `rm -rf releases/{sha}/` yourself.
+
+---
+
+### Rollback Migrations
+
+Reverts the most recently applied batch of database migrations, directly against the live tables. Triggered manually from the Actions tab (`workflow_dispatch`) — no SSH access to the deploy user is needed, since it reuses the same `SSH_PRIVATE_KEY` secret the deploy pipeline already has.
+
+**How it works:**
+
+Checks out the repo, connects over SSH (same as Atomic Deploy), uploads a fresh copy of `rollback.sh` plus the local `migrations/queries/` directory to a temporary directory on the server, runs it, then deletes that temporary directory regardless of outcome — nothing is left behind on the server.
+
+`rollback.sh` derives the same `table_prefix` and migrations tracking table `swap.sh` would have used (from `wp-root` and the repository name — no need to look either up yourself), finds the most recently applied batch (the migrations from one specific deploy, identified by its short SHA), and reverts them **in reverse order**:
+
+- A migration with a `-- +migrate Down` section: its Down SQL runs, then its tracking row is removed — only once the Down SQL actually succeeds, so a failure partway through a batch leaves an accurate record of what's still applied, and re-running the workflow picks up from there.
+- A migration with no Down section: left as-is, logged clearly, not treated as an error — this is deliberate so a mixed batch (some migrations revertible, some not) doesn't fail outright partway through.
+
+Down only reverses schema shape, not data a migration deleted or transformed — restore from your own backup for that (see **Migrations run against live tables** under Atomic Deploy).
+
+**Inputs:**
+
+- `ssh-host`: SSH host. Required.
+- `wp-root`: Absolute path to the WordPress root on the server. Required. Must start with `/`.
+- `ssh-port`: SSH port. Optional, default is `22`.
+- `ssh-user`: SSH user. Optional, default is `piecode`.
+- `releases-dir`: Absolute path to a writable directory used only to stage this run's temporary working directory. Optional, defaults to a `releases` subdirectory inside `wp-root`.
+- `migrations-path`: Local path (relative to the checked-out repo) containing the `migrations` directory. Optional, default is `migrations`.
+
+**Secrets:**
+
+- `SSH_PRIVATE_KEY`: SSH private key. Required — the same one used for Atomic Deploy.
+
+**Example:**
+
+```yaml
+name: Rollback Migrations
+on:
+  workflow_dispatch:
+jobs:
+  rollback_migrations:
+    uses: pie/.github/.github/workflows/rollback-migrations.yaml@main
+    with:
+      ssh-host: example.com
+      wp-root: /home/piecode/site/public_html
+    secrets:
+      SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
+```
 
 ---
 
@@ -326,6 +372,7 @@ These composite actions are used internally by the workflows above but can also 
 | `add-ssh-pass` | Installs sshpass and configures password-based SSH authentication |
 | `deploy-via-rsync` | Runs an optional Composer/npm build then deploys files via rsync |
 | `deploy-via-ftp` | Runs an optional Composer/npm build then deploys files via FTP |
+| `rollback-migrations` | Reverts the most recently applied batch of database migrations over SSH |
 | `swap-and-migrate` | Runs DB migrations and atomic component swap in a single SSH session |
 | `synchronise-remote` | Executes a synchronisation script on a remote server over SSH |
 | `verify-branch-is-correct` | Fails the job if the current branch does not match the expected branch (default: `production`) |
@@ -337,7 +384,7 @@ These composite actions are used internally by the workflows above but can also 
 
 ### SQL Migrations
 
-Copy `templates/migrations/` into your project to get the `migrations/queries/` directory structure. No scripts are needed per-project — `swap.sh`, `migrate.sh`, and `rollback.sh` are bundled with the action and uploaded to the server automatically on each deploy.
+Copy `templates/migrations/` into your project to get the `migrations/queries/` directory structure. No scripts are needed per-project — `swap.sh` and `migrate.sh` are bundled with the action and uploaded to the server automatically on each deploy; `rollback.sh` is bundled separately and only uploaded when the **Rollback Migrations** workflow runs.
 
 The calling workflow should rsync `migrations/` to `releases/${{ github.sha }}/migrations` and pass the component list to the `atomic-deploy` workflow:
 
@@ -362,7 +409,7 @@ migrations/queries/
 ALTER TABLE __WP_PREFIX__posts ADD COLUMN source VARCHAR(255) DEFAULT NULL;
 ```
 
-**Rollback (optional):** split a file into `-- +migrate Up` and `-- +migrate Down` sections to make it revertible via `rollback.sh` (see **Rollback** above). A file with no markers — like the plain example above — is treated as Up-only; `rollback.sh` leaves its change in place and logs that it has nothing to revert, rather than guessing or failing. `Down` should reverse the schema shape `Up` created — it can't recover data `Up` deleted or transformed unless you explicitly write logic to preserve it first.
+**Rollback (optional):** split a file into `-- +migrate Up` and `-- +migrate Down` sections to make it revertible via the **Rollback Migrations** workflow (see above). A file with no markers — like the plain example above — is treated as Up-only; rollback leaves its change in place and logs that it has nothing to revert, rather than guessing or failing. `Down` should reverse the schema shape `Up` created — it can't recover data `Up` deleted or transformed unless you explicitly write logic to preserve it first.
 
 ```sql
 -- 0001_add_source_column.sql
@@ -374,4 +421,4 @@ ALTER TABLE __WP_PREFIX__posts ADD COLUMN source VARCHAR(255) DEFAULT NULL;
 ALTER TABLE __WP_PREFIX__posts DROP COLUMN source;
 ```
 
-Migrations are tracked per-project in a table named `{repo_name}_migrations` (derived automatically), including which deploy (`batch`) applied each one — `rollback.sh` uses this to undo one deploy's migrations at a time, most-recently-applied first. The table is created on first run if it does not exist.
+Migrations are tracked per-project in a table named `{repo_name}_migrations` (derived automatically), including which deploy (`batch`) applied each one — the **Rollback Migrations** workflow uses this to undo one deploy's migrations at a time, most-recently-applied first. The table is created on first run if it does not exist.
