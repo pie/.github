@@ -8,11 +8,11 @@ set -euo pipefail
 # Do not copy or edit this file per-project — changes belong in the action.
 #
 # Called as a subprocess from swap.sh during an atomic deploy. Applies pending
-# SQL migrations against the copied tables (NEW_PREFIX), so the live database
-# is never touched until the prefix switch succeeds in swap.sh.
+# SQL migrations directly against the live tables — there is no clone or
+# backup to fall back to if a migration fails partway through.
 #
 # Migration files must use __WP_PREFIX__ as a placeholder for the table prefix.
-# This token is replaced with NEW_PREFIX before execution, ensuring only
+# This token is replaced with TARGET_PREFIX before execution, ensuring only
 # explicit prefix references are rewritten — never string literals or comments
 # that happen to contain the prefix substring.
 #
@@ -21,7 +21,7 @@ set -euo pipefail
 # Injected by swap.sh:
 #   WP_ROOT           Absolute path to the WordPress root
 #   MIGRATIONS_TABLE  Tracking table name (pre-computed by swap.sh)
-#   NEW_PREFIX        New prefix to target (e.g. wp_a1b2c3d4_)
+#   TARGET_PREFIX     Table prefix to target — the live prefix (e.g. wp_)
 # ==============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -77,7 +77,7 @@ for SQL_FILE in "${PENDING[@]}"; do
     FILENAME=$(basename "$SQL_FILE")
     log "Applying $FILENAME"
 
-    sed "s/__WP_PREFIX__/${NEW_PREFIX}/g" "$SQL_FILE" \
+    sed "s/__WP_PREFIX__/${TARGET_PREFIX}/g" "$SQL_FILE" \
         | wp db query --path="$WP_ROOT"
 
     SAFE_FILENAME=$(printf '%s' "$FILENAME" | sed "s/'/''/g")

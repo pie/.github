@@ -6,7 +6,7 @@ This repository contains reusable workflows and composite actions for managing r
 
 ### Atomic Deploy
 
-Deploys components to a release directory keyed by the short (8-character) git commit SHA, then atomically swaps them into place and runs any pending database migrations. When migrations are pending, the database work and component swap are performed inside a maintenance window. When there are no pending migrations, components are swapped with no downtime. Supports rollback by resyncing the prior release back to the live directories; when migrations ran, the old prefix tables are dropped during deployment, so a full rollback requires restoring from the pre-deploy backup.
+Deploys components to a release directory keyed by the short (8-character) git commit SHA, then atomically swaps them into place and runs any pending database migrations directly against the live tables. When migrations are pending, the database work and component swap are performed inside a maintenance window. When there are no pending migrations, components are swapped with no downtime. Migrations run with no table clone or automated backup — the only pre-flight check is a dry run against a disposable structure-only clone. Take a full site backup and confirm migrations against staging before deploying; see **Migrations run against live tables** below.
 
 **How it works:**
 
@@ -14,19 +14,25 @@ Rsync jobs deploy each component to a release directory keyed by the short SHA (
 
 1. Verifies WP-CLI can reach the database
 2. Checks for pending SQL migrations
-3. If any: enables maintenance mode → dry-runs the pending migrations against structure-only clones of the live tables (no data, dropped immediately after) and bails out with maintenance mode deactivated if any fail → exports a database backup → copies live tables to a new `{base-prefix}{short-sha}_` prefix → runs migrations against the copy → updates usermeta keys and option names to the new prefix → switches `wp-config.php` to the new prefix → drops old tables
+3. If any: enables maintenance mode → dry-runs the pending migrations against structure-only clones of the live tables (no data, dropped immediately after) and bails out with maintenance mode deactivated if any fail → runs migrations directly against the live tables
 4. Rsyncs each component from the release directory to a hidden staging path, then atomically renames it into place
 5. Prunes releases older than 1 prior
-6. If migrations ran, prunes older database backups, keeping only the one from this deploy
 
 Failures are handled based on how far the deploy got:
 
-- **Before `wp-config.php` or components change** — maintenance mode is deactivated automatically and the site recovers on the previous version. A notification is sent with subject *Deploy failed, site recovered*.
-- **After either live change begins** — maintenance mode stays on to prevent the site returning in a broken state. A notification is sent with subject *URGENT: Site in maintenance mode*, including instructions for manual verification.
+- **Before migrations start** (dry run failed, or none were pending) — maintenance mode is deactivated automatically and the site recovers on the previous version. A notification is sent with subject *Deploy failed, site recovered*.
+- **After migrations start** — maintenance mode stays on; there is no clone or backup to recover from automatically. A notification is sent with subject *URGENT: Site in maintenance mode*, including instructions for manual verification.
+
+**Migrations run against live tables:**
+
+Earlier versions of this workflow cloned every table to a new prefix, migrated the copy, then switched `wp-config.php` over — giving an instant fallback if something went wrong, at the cost of a lot of moving parts (full DB export, foreign key/trigger reconstruction, prefix bookkeeping) for a safety net that MySQL's non-transactional DDL couldn't fully honour anyway. Mainstream migration tools (Laravel, Rails, Django) don't clone either — they migrate live tables directly, for the same reason. This workflow now does the same:
+
+- **Confirm migrations against a staging copy of the site first.** The dry run here only checks that the SQL is syntactically valid against the live schema — it can't tell you whether the migration does the right thing.
+- **Take a full site backup before deploying migrations.** Nothing in this workflow backs up the database. If a migration fails partway through, the affected tables are left in whatever state that migration reached, and the deploy stops with the site in maintenance mode for manual recovery — there's no automatic revert.
 
 **Server directory structure:**
 
-`releases/` and `db-backups/` are created inside `wp-root` — not a sibling of it — because some hosts don't grant the deploy user write access above the web root. See **Requirements** below for the access rule this requires.
+`releases/` is created inside `wp-root` — not a sibling of it — because some hosts don't grant the deploy user write access above the web root. See **Requirements** below for the access rule this requires.
 
 ```
 /home/piecode/site/public_html/     ← WordPress root
@@ -36,7 +42,6 @@ Failures are handled based on how far the deploy got:
 │   │   ├── my-theme/
 │   │   └── migrations/
 │   └── {previous-sha}/         ← kept for rollback
-├── db-backups/                  ← this deploy's pre-migration export only (when migrations run)
 └── wp-content/
     ├── plugins/
     │   └── my-plugin/      ← files copied from releases/{sha}/my-plugin/
@@ -46,15 +51,15 @@ Failures are handled based on how far the deploy got:
 
 **Requirements:**
 
-Before running this workflow, block public HTTP access to `releases/` and `db-backups/` under `wp-root`:
+Before running this workflow, block public HTTP access to `releases/` under `wp-root`:
 
-- **Apache** — create `releases/.htaccess` and `db-backups/.htaccess`, each containing:
+- **Apache** — create `releases/.htaccess` containing:
   ```apache
   Require all denied
   ```
 - **Nginx** — add to the site's server block:
   ```nginx
-  location ~ ^/(releases|db-backups)/ { deny all; }
+  location ~ ^/releases/ { deny all; }
   ```
 
 **Inputs:**
@@ -147,9 +152,9 @@ rsync -a --delete "${PRIOR}my-theme/"  "$WP_ROOT/wp-content/themes/my-theme/"
 wp cache flush --path="$WP_ROOT"
 ```
 
-If migrations ran, the old prefix tables were dropped after the prefix switch — rolling back the code alone leaves it running against the migrated schema, which may or may not be compatible. A full rollback requires restoring the database from the pre-deploy backup in `db-backups/` and reverting `table_prefix` in `wp-config.php` to the previous value.
+If migrations ran, rolling back the code alone leaves it running against the migrated schema, which may or may not be compatible — migrations aren't reverted by this workflow. A full rollback requires restoring the database from your own pre-deploy backup (see **Migrations run against live tables** above — this workflow doesn't take one for you).
 
-If the failure notification subject says *URGENT: Site in maintenance mode*, the deploy failed after live changes began. Before deactivating maintenance mode, verify the table prefix and component directories are in a consistent state — the notification email includes the exact commands to run.
+If the failure notification subject says *URGENT: Site in maintenance mode*, the deploy failed after migrations had already started. Before deactivating maintenance mode, verify which migrations were recorded as applied and that component directories are in a consistent state — the notification email includes the exact commands to run.
 
 ---
 
