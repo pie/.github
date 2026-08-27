@@ -34,18 +34,6 @@ on:
       SSH_PRIVATE_KEY:
         description: "SSH private key"
         required: true
-      SMTP_SERVER:
-        description: "SMTP server for failure notifications"
-        required: false
-      SMTP_USERNAME:
-        description: "SMTP username"
-        required: false
-      SMTP_PASSWORD:
-        description: "SMTP password"
-        required: false
-      NOTIFY_EMAIL:
-        description: "Override recipient email (defaults to #uptime_alerts Slack channel)"
-        required: false
 
 concurrency:
   group: atomic-deploy-${{ inputs.ssh-host }}-${{ inputs.wp-root }}
@@ -77,7 +65,3 @@ jobs:
           repo-name: ${{github.event.repository.name}}
           components: ${{inputs.components}}
           releases-dir: ${{inputs.releases-dir}}
-          notify-email: ${{secrets.NOTIFY_EMAIL || 'uptime_alerts-aaaaabagrbjrarifmw25mquney@piecode.slack.com'}}
-          smtp-server: ${{secrets.SMTP_SERVER}}
-          smtp-username: ${{secrets.SMTP_USERNAME}}
-          smtp-password: ${{secrets.SMTP_PASSWORD}}

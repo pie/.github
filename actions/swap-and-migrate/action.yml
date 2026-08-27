@@ -18,22 +18,6 @@ inputs:
     description: "Absolute path to the releases directory on the server. Defaults to a 'releases' subdirectory inside wp-root when not set."
     required: false
     default: ""
-  notify-email:
-    description: "Email address to notify on failure"
-    required: false
-    default: ""
-  smtp-server:
-    description: "SMTP server address"
-    required: false
-    default: ""
-  smtp-username:
-    description: "SMTP username"
-    required: false
-    default: ""
-  smtp-password:
-    description: "SMTP password"
-    required: false
-    default: ""
 
 runs:
   using: composite
@@ -105,70 +89,6 @@ runs:
         set -e
         echo "ssh_exit=${SSH_EXIT}" >> "$GITHUB_OUTPUT"
         exit $SSH_EXIT
-
-    # Exit code 1: failed before live changes — maintenance mode was deactivated,
-    # site is running on the previous version.
-    - name: Send failure notification — site recovered
-      if: steps.swap.outcome == 'failure' && steps.swap.outputs.ssh_exit == '1' && inputs.smtp-server != '' && inputs.smtp-username != '' && inputs.smtp-password != '' && inputs.notify-email != ''
-      # Pinned to a commit SHA rather than @v3 — this action runs with SMTP
-      # credentials as secrets, so a tag getting repointed (maintainer
-      # compromise or otherwise) would run different code with those
-      # credentials on the next deploy, with no diff to review here first.
-      # To intentionally pick up an update, resolve the new v3 tag to a SHA
-      # and replace both the hash and this comment.
-      uses: dawidd6/action-send-mail@4226df7daafa6fc901a43789c49bf7ab309066e7 # v3
-      with:
-        server_address: ${{ inputs.smtp-server }}
-        server_port: 465
-        secure: true
-        username: ${{ inputs.smtp-username }}
-        password: ${{ inputs.smtp-password }}
-        to: ${{ inputs.notify-email }}
-        from: GitHub Actions <noreply@pie.co.de>
-        subject: "Deploy failed, site recovered — ${{ github.repository }}"
-        html_body: |
-          <h2>Deploy failed — site recovered</h2>
-          <p>The deploy failed before any live changes were made. Maintenance mode was deactivated automatically. The site is running on the previous version.</p>
-          <p><strong>Repository:</strong> ${{ github.repository }}<br>
-          <strong>SHA:</strong> ${{ inputs.git-sha }}<br>
-          <strong>Exit code:</strong> ${{ steps.swap.outputs.ssh_exit }}</p>
-          <p><a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View workflow run for full log</a></p>
-
-    # Exit code 2: failed after live changes began — site is in maintenance mode.
-    # Migrations run directly against the live tables with no clone or backup,
-    # so they may have applied only partially; a component directory may also
-    # be in a partially-updated state.
-    - name: Send urgent notification — site in maintenance mode
-      if: steps.swap.outcome == 'failure' && steps.swap.outputs.ssh_exit == '2' && inputs.smtp-server != '' && inputs.smtp-username != '' && inputs.smtp-password != '' && inputs.notify-email != ''
-      # Pinned to a commit SHA rather than @v3 — this action runs with SMTP
-      # credentials as secrets, so a tag getting repointed (maintainer
-      # compromise or otherwise) would run different code with those
-      # credentials on the next deploy, with no diff to review here first.
-      # To intentionally pick up an update, resolve the new v3 tag to a SHA
-      # and replace both the hash and this comment.
-      uses: dawidd6/action-send-mail@4226df7daafa6fc901a43789c49bf7ab309066e7 # v3
-      with:
-        server_address: ${{ inputs.smtp-server }}
-        server_port: 465
-        secure: true
-        username: ${{ inputs.smtp-username }}
-        password: ${{ inputs.smtp-password }}
-        to: ${{ inputs.notify-email }}
-        from: GitHub Actions <noreply@pie.co.de>
-        subject: "URGENT: Site in maintenance mode — ${{ github.repository }}"
-        html_body: |
-          <h2>&#9888;&#65039; Urgent: site is in maintenance mode</h2>
-          <p>The deploy failed after live changes began. <strong>The site is currently in maintenance mode and requires manual intervention.</strong></p>
-          <p>Migrations run directly against the live tables with no clone or backup to fall back to. Before deactivating maintenance mode:</p>
-          <ol>
-            <li>Check which migrations were recorded as applied, and compare against the pending SQL files in this release's <code>migrations/queries/</code> to see which one likely failed:<br><code>wp db query "SELECT * FROM {prefix}{repo}_migrations ORDER BY id DESC LIMIT 5" --path="${{ inputs.wp-root }}"</code></li>
-            <li>Check component directories in wp-content are in a consistent state:<br><code>ls -la ${{ inputs.wp-root }}/wp-content/plugins/ ${{ inputs.wp-root }}/wp-content/themes/</code></li>
-            <li>If the migration that failed had already applied some of its batch and you want to revert them, run the <strong>Rollback Migrations</strong> workflow from the Actions tab rather than SSHing in — it reverts the most recent batch using each migration's <code>-- +migrate Down</code> section.</li>
-          </ol>
-          <p>Once the state is confirmed safe, deactivate maintenance mode:<br><code>wp maintenance-mode deactivate --path="${{ inputs.wp-root }}"</code></p>
-          <p><strong>Repository:</strong> ${{ github.repository }}<br>
-          <strong>SHA:</strong> ${{ inputs.git-sha }}</p>
-          <p><a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View workflow run for full log</a></p>
 
     - name: Fail the job
       if: steps.swap.outcome == 'failure'

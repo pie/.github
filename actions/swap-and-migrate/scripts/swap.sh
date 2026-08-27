@@ -57,6 +57,8 @@ cleanup() {
             log "ERROR: Migrations may have applied only partially — before deactivating maintenance mode, verify:"
             log "ERROR:   wp db query \"SELECT * FROM \`$MIGRATIONS_TABLE\` ORDER BY id DESC LIMIT 5\" --path=\"$WP_ROOT\""
             log "ERROR:   ls -la $WP_ROOT/wp-content/plugins/ $WP_ROOT/wp-content/themes/"
+            log "ERROR: To revert migrations with a '-- +migrate Down' section, run the Rollback Migrations workflow from the Actions tab rather than SSHing in"
+            log "ERROR: Once verified safe: wp maintenance-mode deactivate --path=\"$WP_ROOT\""
             exit 2
         fi
     fi

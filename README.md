@@ -20,8 +20,10 @@ Rsync jobs deploy each component to a release directory keyed by the short SHA (
 
 Failures are handled based on how far the deploy got:
 
-- **Before migrations start** (dry run failed, or none were pending) — maintenance mode is deactivated automatically and the site recovers on the previous version. A notification is sent with subject *Deploy failed, site recovered*.
-- **After migrations start** — maintenance mode stays on; there is no clone or backup to recover from automatically. A notification is sent with subject *URGENT: Site in maintenance mode*, including instructions for manual verification.
+- **Before migrations start** (dry run failed, or none were pending) — maintenance mode is deactivated automatically and the site recovers on the previous version.
+- **After migrations start** — maintenance mode stays on; there is no clone or backup to recover from automatically. Manual verification instructions are printed in the run's log output.
+
+No email notification is sent — GitHub's own workflow-failure notifications (to whoever triggered the run, per their notification settings) cover that; check the Actions log for which case applies and what to do next.
 
 **Migrations run against live tables:**
 
@@ -73,12 +75,6 @@ Before running this workflow, block public HTTP access to `releases/` under `wp-
 **Secrets:**
 
 - `SSH_PRIVATE_KEY`: SSH private key. Required.
-- `SMTP_SERVER`: SMTP server for failure notifications. Optional — set at organisation level.
-- `SMTP_USERNAME`: SMTP username. Optional — set at organisation level.
-- `SMTP_PASSWORD`: SMTP password. Optional — set at organisation level.
-- `NOTIFY_EMAIL`: Override the notification recipient. Optional — defaults to `#uptime_alerts` Slack channel.
-
-Failure notifications are sent via [`dawidd6/action-send-mail`](https://github.com/dawidd6/action-send-mail), pinned to a commit SHA rather than `@v3` — it runs with the SMTP secrets above, so a moved tag would run different code with those credentials with no diff to review first. Bumping it is a deliberate action: resolve the new tag to a SHA and update both the workflow and its inline comment.
 
 **Example:**
 
@@ -132,9 +128,6 @@ jobs:
         themes:my-theme
     secrets:
       SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
-      SMTP_SERVER: ${{secrets.SMTP_SERVER}}
-      SMTP_USERNAME: ${{secrets.SMTP_USERNAME}}
-      SMTP_PASSWORD: ${{secrets.SMTP_PASSWORD}}
 ```
 
 **Rollback:**
@@ -157,7 +150,7 @@ If migrations ran, rolling back the code alone leaves it running against the mig
 1. **Run the [Rollback Migrations](#rollback-migrations) workflow**, if the migrations that ran define a `-- +migrate Down` section — see **SQL Migrations** below. It only reverses schema shape, not data a migration deleted or transformed.
 2. **Restore from your own pre-deploy backup** — required for anything the rollback can't undo (a migration with no Down section, or one that changed data). See **Migrations run against live tables** above — this workflow doesn't take a backup for you.
 
-If the failure notification subject says *URGENT: Site in maintenance mode*, the deploy failed after migrations had already started. Before deactivating maintenance mode, verify which migrations were recorded as applied and that component directories are in a consistent state — the notification email includes the exact commands to run.
+If the workflow run's log shows the site is still in maintenance mode, the deploy failed after migrations had already started. Before deactivating maintenance mode, verify which migrations were recorded as applied and that component directories are in a consistent state — the log output includes the exact commands to run.
 
 **Cleaning up after a manual recovery:** the `releases/{sha}/` directory for a failed deploy (its component copies, `swap.sh`, `migrate.sh`, `queries/`) is only pruned by a *later successful* deploy's own pruning step (Step 5) — a run that stops for manual recovery never reaches it. In practice this self-heals within a deploy or two once you're back to shipping normally, since pruning keeps only the current release plus one prior regardless of which ones succeeded. If you're not deploying again soon and want it gone immediately, it's safe to `rm -rf releases/{sha}/` yourself.
 
