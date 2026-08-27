@@ -16,12 +16,26 @@ set -euo pipefail
 # explicit prefix references are rewritten — never string literals or comments
 # that happen to contain the prefix substring.
 #
-# Example:  ALTER TABLE __WP_PREFIX__posts ADD COLUMN source VARCHAR(255);
+# A migration file may optionally split its SQL into "-- +migrate Up" and
+# "-- +migrate Down" sections — only the Up section runs here (Down is used
+# by rollback.sh, uploaded alongside this file but never run automatically).
+# A file with no markers at all is treated as Up-only, for migrations written
+# before this convention existed.
+#
+# Example:
+#   -- +migrate Up
+#   ALTER TABLE __WP_PREFIX__posts ADD COLUMN source VARCHAR(255);
+#
+#   -- +migrate Down
+#   ALTER TABLE __WP_PREFIX__posts DROP COLUMN source;
 #
 # Injected by swap.sh:
 #   WP_ROOT           Absolute path to the WordPress root
 #   MIGRATIONS_TABLE  Tracking table name (pre-computed by swap.sh)
 #   TARGET_PREFIX     Table prefix to target — the live prefix (e.g. wp_)
+#   BATCH             Identifier grouping migrations applied by this deploy
+#                      (the deploy's short SHA) — rollback.sh undoes one
+#                      batch at a time.
 # ==============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,17 +43,40 @@ QUERIES_DIR="$SCRIPT_DIR/queries"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 
+# Extracts the "Up" or "Down" section from a migration file. A file with no
+# "-- +migrate Up" marker at all is treated as one plain Up-only migration —
+# prints the whole file for "up", nothing for "down".
+extract_section() {
+    local file="$1" section="$2"
+    if [ "$section" = "down" ]; then
+        if ! grep -q '^-- +migrate Down[[:space:]]*$' "$file"; then
+            return 0
+        fi
+        awk '/^-- \+migrate Down[[:space:]]*$/{flag=1; next} flag' "$file"
+    else
+        if ! grep -q '^-- +migrate Up[[:space:]]*$' "$file"; then
+            cat "$file"
+            return 0
+        fi
+        awk '/^-- \+migrate Up[[:space:]]*$/{flag=1; next} /^-- \+migrate Down[[:space:]]*$/{flag=0} flag' "$file"
+    fi
+}
+
 # ==============================================================================
-# Step 1: Ensure tracking table exists
+# Step 1: Ensure tracking table exists (and carries the batch column, for
+# tables created before that column existed).
 # ==============================================================================
 
 wp db query "
     CREATE TABLE IF NOT EXISTS \`$MIGRATIONS_TABLE\` (
         id         INT AUTO_INCREMENT PRIMARY KEY,
         filename   VARCHAR(255) NOT NULL UNIQUE,
+        batch      VARCHAR(8)   NOT NULL DEFAULT '',
         applied_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
 " --path="$WP_ROOT"
+
+wp db query "ALTER TABLE \`$MIGRATIONS_TABLE\` ADD COLUMN IF NOT EXISTS batch VARCHAR(8) NOT NULL DEFAULT '' AFTER filename" --path="$WP_ROOT"
 
 # ==============================================================================
 # Step 2: Find pending migrations
@@ -70,19 +107,22 @@ fi
 log "${#PENDING[@]} migration(s) to apply"
 
 # ==============================================================================
-# Step 3: Apply pending migrations against the copied tables
+# Step 3: Apply pending migrations against the live tables
 # ==============================================================================
+
+SAFE_BATCH=$(printf '%s' "$BATCH" | sed "s/'/''/g")
 
 for SQL_FILE in "${PENDING[@]}"; do
     FILENAME=$(basename "$SQL_FILE")
     log "Applying $FILENAME"
 
-    sed "s/__WP_PREFIX__/${TARGET_PREFIX}/g" "$SQL_FILE" \
+    extract_section "$SQL_FILE" up \
+        | sed "s/__WP_PREFIX__/${TARGET_PREFIX}/g" \
         | wp db query --path="$WP_ROOT"
 
     SAFE_FILENAME=$(printf '%s' "$FILENAME" | sed "s/'/''/g")
     wp db query \
-        "INSERT INTO \`$MIGRATIONS_TABLE\` (filename) VALUES ('$SAFE_FILENAME')" \
+        "INSERT INTO \`$MIGRATIONS_TABLE\` (filename, batch) VALUES ('$SAFE_FILENAME', '$SAFE_BATCH')" \
         --path="$WP_ROOT"
 
     log "  Applied: $FILENAME"

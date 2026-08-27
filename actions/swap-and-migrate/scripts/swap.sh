@@ -253,6 +253,7 @@ if [ "$HAS_MIGRATIONS" = true ]; then
     WP_ROOT="$WP_ROOT" \
     MIGRATIONS_TABLE="$MIGRATIONS_TABLE" \
     TARGET_PREFIX="$CURRENT_PREFIX" \
+    BATCH="$SHORT_SHA" \
         bash "$MIGRATE_SCRIPT"
 
     log "Database migrations complete"

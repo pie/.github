@@ -152,9 +152,14 @@ rsync -a --delete "${PRIOR}my-theme/"  "$WP_ROOT/wp-content/themes/my-theme/"
 wp cache flush --path="$WP_ROOT"
 ```
 
-If migrations ran, rolling back the code alone leaves it running against the migrated schema, which may or may not be compatible — migrations aren't reverted by this workflow. A full rollback requires restoring the database from your own pre-deploy backup (see **Migrations run against live tables** above — this workflow doesn't take one for you).
+If migrations ran, rolling back the code alone leaves it running against the migrated schema, which may or may not be compatible. Two options, in order of preference:
+
+1. **`rollback.sh`**, if the migrations that ran define a `-- +migrate Down` section — see **SQL Migrations** below. It's already on the server at `releases/{sha}/migrations/rollback.sh` (uploaded on every deploy, nothing extra to fetch) and only reverses schema shape, not data a migration deleted or transformed.
+2. **Restore from your own pre-deploy backup** — required for anything `rollback.sh` can't undo (a migration with no Down section, or one that changed data). See **Migrations run against live tables** above — this workflow doesn't take a backup for you.
 
 If the failure notification subject says *URGENT: Site in maintenance mode*, the deploy failed after migrations had already started. Before deactivating maintenance mode, verify which migrations were recorded as applied and that component directories are in a consistent state — the notification email includes the exact commands to run.
+
+**Cleaning up after a manual recovery:** the `releases/{sha}/` directory for a failed deploy (its component copies, `swap.sh`, `migrate.sh`, `rollback.sh`, `queries/`) is only pruned by a *later successful* deploy's own pruning step (Step 5) — a run that stops for manual recovery never reaches it. In practice this self-heals within a deploy or two once you're back to shipping normally, since pruning keeps only the current release plus one prior regardless of which ones succeeded. If you're not deploying again soon and want it gone immediately, it's safe to `rm -rf releases/{sha}/` yourself once you're done with its `rollback.sh` — nothing else on the server references that directory.
 
 ---
 
@@ -332,7 +337,7 @@ These composite actions are used internally by the workflows above but can also 
 
 ### SQL Migrations
 
-Copy `templates/migrations/` into your project to get the `migrations/queries/` directory structure. No scripts are needed per-project — `swap.sh` and `migrate.sh` are bundled with the action and uploaded to the server automatically on each deploy.
+Copy `templates/migrations/` into your project to get the `migrations/queries/` directory structure. No scripts are needed per-project — `swap.sh`, `migrate.sh`, and `rollback.sh` are bundled with the action and uploaded to the server automatically on each deploy.
 
 The calling workflow should rsync `migrations/` to `releases/${{ github.sha }}/migrations` and pass the component list to the `atomic-deploy` workflow:
 
@@ -357,4 +362,16 @@ migrations/queries/
 ALTER TABLE __WP_PREFIX__posts ADD COLUMN source VARCHAR(255) DEFAULT NULL;
 ```
 
-Migrations are tracked per-project in a table named `{repo_name}_migrations` (derived automatically). The table is created on first run if it does not exist.
+**Rollback (optional):** split a file into `-- +migrate Up` and `-- +migrate Down` sections to make it revertible via `rollback.sh` (see **Rollback** above). A file with no markers — like the plain example above — is treated as Up-only; `rollback.sh` leaves its change in place and logs that it has nothing to revert, rather than guessing or failing. `Down` should reverse the schema shape `Up` created — it can't recover data `Up` deleted or transformed unless you explicitly write logic to preserve it first.
+
+```sql
+-- 0001_add_source_column.sql
+
+-- +migrate Up
+ALTER TABLE __WP_PREFIX__posts ADD COLUMN source VARCHAR(255) DEFAULT NULL;
+
+-- +migrate Down
+ALTER TABLE __WP_PREFIX__posts DROP COLUMN source;
+```
+
+Migrations are tracked per-project in a table named `{repo_name}_migrations` (derived automatically), including which deploy (`batch`) applied each one — `rollback.sh` uses this to undo one deploy's migrations at a time, most-recently-applied first. The table is created on first run if it does not exist.
