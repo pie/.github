@@ -89,6 +89,21 @@ if [ ! -d "$QUERIES_DIR" ]; then
     exit 0
 fi
 
+# The batch column is normally added by migrate.sh, but only as a side
+# effect of a deploy that has a pending migration to apply — this script
+# can't assume that has already happened by the time it runs, so it ensures
+# both the table and the column exist itself, the same way migrate.sh does.
+wp db query "
+    CREATE TABLE IF NOT EXISTS \`$MIGRATIONS_TABLE\` (
+        id         INT AUTO_INCREMENT PRIMARY KEY,
+        filename   VARCHAR(255) NOT NULL UNIQUE,
+        batch      VARCHAR(8)   NOT NULL DEFAULT '',
+        applied_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+" --path="$WP_ROOT"
+
+wp db query "ALTER TABLE \`$MIGRATIONS_TABLE\` ADD COLUMN IF NOT EXISTS batch VARCHAR(8) NOT NULL DEFAULT '' AFTER filename" --path="$WP_ROOT"
+
 # COUNT(*) always returns exactly one row, even when it's 0 — wp db query
 # falls back to printing a generic status line instead of nothing for a
 # SELECT that matches zero rows, which a direct "is this empty" check on a
