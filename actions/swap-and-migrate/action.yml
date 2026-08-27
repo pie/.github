@@ -1,0 +1,96 @@
+name: Swap and Migrate
+description: "Performs maintenance mode, database migrations, and atomic component swap in a single SSH session"
+
+inputs:
+  wp-root:
+    description: "Absolute path to the WordPress root on the remote server (must start with /)"
+    required: true
+  git-sha:
+    description: "Git commit SHA for the current deployment"
+    required: true
+  repo-name:
+    description: "Repository name used to derive the migrations tracking table name"
+    required: true
+  components:
+    description: "Newline-separated list of components to deploy, one per line in type:name format (e.g. plugins:my-plugin)"
+    required: true
+  releases-dir:
+    description: "Absolute path to the releases directory on the server. Defaults to a 'releases' subdirectory inside wp-root when not set."
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Validate inputs
+      shell: bash
+      env:
+        WP_ROOT: ${{ inputs.wp-root }}
+        RELEASES_DIR_INPUT: ${{ inputs.releases-dir }}
+      run: |
+        if [[ "$WP_ROOT" != '/'* ]]; then
+          echo "Error: wp-root must be an absolute path starting with / (e.g. /home/piecode/site/public_html)." >&2
+          exit 1
+        fi
+
+        # A relative override here ends up relative to whatever directory the
+        # SSH login session lands in, not wp-root — and swap.sh's pruning step
+        # runs rm -rf against whatever it finds there, unrelated first-level
+        # directories included.
+        if [ -n "$RELEASES_DIR_INPUT" ] && [[ "$RELEASES_DIR_INPUT" != '/'* ]]; then
+          echo "Error: releases-dir must be an absolute path starting with / (e.g. /home/piecode/site/public_html/releases)." >&2
+          exit 1
+        fi
+
+    - name: Upload swap scripts to server
+      shell: bash
+      env:
+        WP_ROOT: ${{ inputs.wp-root }}
+        GIT_SHA: ${{ inputs.git-sha }}
+        DEPLOY_COMPONENTS: ${{ inputs.components }}
+        RELEASES_DIR_INPUT: ${{ inputs.releases-dir }}
+      run: |
+        if [ -n "$RELEASES_DIR_INPUT" ]; then
+          RELEASES_DIR="$RELEASES_DIR_INPUT"
+        else
+          RELEASES_DIR="$WP_ROOT/releases"
+        fi
+        MIGRATIONS_DIR="$RELEASES_DIR/$GIT_SHA/migrations"
+        MIGRATIONS_DIR_Q=$(printf '%q' "$MIGRATIONS_DIR")
+        ssh server "mkdir -p $MIGRATIONS_DIR_Q"
+        scp "$GITHUB_ACTION_PATH/scripts/swap.sh" "server:$MIGRATIONS_DIR/swap.sh"
+        scp "$GITHUB_ACTION_PATH/scripts/migrate.sh" "server:$MIGRATIONS_DIR/migrate.sh"
+        printf '%s' "$DEPLOY_COMPONENTS" | ssh server "cat > $MIGRATIONS_DIR_Q/components.txt"
+
+    - name: Run atomic swap and migrations
+      id: swap
+      continue-on-error: true
+      shell: bash
+      env:
+        WP_ROOT: ${{ inputs.wp-root }}
+        GIT_SHA: ${{ inputs.git-sha }}
+        REPO_NAME: ${{ inputs.repo-name }}
+        RELEASES_DIR_INPUT: ${{ inputs.releases-dir }}
+      run: |
+        set +e
+        WP_ROOT_Q=$(printf '%q' "$WP_ROOT")
+        GIT_SHA_Q=$(printf '%q' "$GIT_SHA")
+        REPO_NAME_Q=$(printf '%q' "$REPO_NAME")
+        if [ -n "$RELEASES_DIR_INPUT" ]; then
+          RELEASES_DIR="$RELEASES_DIR_INPUT"
+        else
+          RELEASES_DIR="$WP_ROOT/releases"
+        fi
+        RELEASES_DIR_Q=$(printf '%q' "$RELEASES_DIR")
+        SWAP_SCRIPT="$RELEASES_DIR/$GIT_SHA/migrations/swap.sh"
+        SWAP_SCRIPT_Q=$(printf '%q' "$SWAP_SCRIPT")
+        ssh server "env WP_ROOT=$WP_ROOT_Q GIT_SHA=$GIT_SHA_Q REPO_NAME=$REPO_NAME_Q RELEASES_DIR=$RELEASES_DIR_Q bash $SWAP_SCRIPT_Q"
+        SSH_EXIT=$?
+        set -e
+        echo "ssh_exit=${SSH_EXIT}" >> "$GITHUB_OUTPUT"
+        exit $SSH_EXIT
+
+    - name: Fail the job
+      if: steps.swap.outcome == 'failure'
+      shell: bash
+      run: exit 1

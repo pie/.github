@@ -1,0 +1,81 @@
+name: Rollback Migrations
+description: "Reverts the most recently applied batch of database migrations directly against the live tables"
+
+inputs:
+  wp-root:
+    description: "Absolute path to the WordPress root on the remote server (must start with /)"
+    required: true
+  repo-name:
+    description: "Repository name used to derive the migrations tracking table name"
+    required: true
+  releases-dir:
+    description: "Absolute path to a writable directory on the server, used only to stage a temporary working directory for this run — cleaned up afterward regardless of outcome. Defaults to a 'releases' subdirectory inside wp-root when not set."
+    required: false
+    default: ""
+  migrations-path:
+    description: "Local path (relative to the checked-out repo) containing the migrations directory, i.e. the parent of migrations/queries"
+    required: false
+    default: "migrations"
+
+runs:
+  using: composite
+  steps:
+    - name: Validate inputs
+      shell: bash
+      env:
+        WP_ROOT: ${{ inputs.wp-root }}
+        RELEASES_DIR_INPUT: ${{ inputs.releases-dir }}
+      run: |
+        if [[ "$WP_ROOT" != '/'* ]]; then
+          echo "Error: wp-root must be an absolute path starting with / (e.g. /home/piecode/site/public_html)." >&2
+          exit 1
+        fi
+
+        if [ -n "$RELEASES_DIR_INPUT" ] && [[ "$RELEASES_DIR_INPUT" != '/'* ]]; then
+          echo "Error: releases-dir must be an absolute path starting with / (e.g. /home/piecode/site/public_html/releases)." >&2
+          exit 1
+        fi
+
+    - name: Upload rollback script and migrations
+      shell: bash
+      env:
+        WP_ROOT: ${{ inputs.wp-root }}
+        RELEASES_DIR_INPUT: ${{ inputs.releases-dir }}
+        MIGRATIONS_PATH: ${{ inputs.migrations-path }}
+      run: |
+        if [ -n "$RELEASES_DIR_INPUT" ]; then
+          RELEASES_DIR="$RELEASES_DIR_INPUT"
+        else
+          RELEASES_DIR="$WP_ROOT/releases"
+        fi
+        # A dot-prefixed, per-run directory under releases/ — reuses the deny
+        # rule already required for releases/ rather than needing a new one,
+        # and is unique enough to never collide with a real deploy's SHA.
+        # Cleaned up in the final step regardless of how the run goes.
+        ROLLBACK_DIR="$RELEASES_DIR/.rollback-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+        echo "ROLLBACK_DIR=$ROLLBACK_DIR" >> "$GITHUB_ENV"
+
+        ROLLBACK_DIR_Q=$(printf '%q' "$ROLLBACK_DIR")
+        ssh server "mkdir -p $ROLLBACK_DIR_Q/queries"
+        scp "$GITHUB_ACTION_PATH/scripts/rollback.sh" "server:$ROLLBACK_DIR/rollback.sh"
+        if [ -d "$MIGRATIONS_PATH/queries" ]; then
+          rsync -a "$MIGRATIONS_PATH/queries/" "server:$ROLLBACK_DIR/queries/"
+        fi
+
+    - name: Run rollback
+      shell: bash
+      env:
+        WP_ROOT: ${{ inputs.wp-root }}
+        REPO_NAME: ${{ inputs.repo-name }}
+      run: |
+        WP_ROOT_Q=$(printf '%q' "$WP_ROOT")
+        REPO_NAME_Q=$(printf '%q' "$REPO_NAME")
+        ROLLBACK_SCRIPT_Q=$(printf '%q' "$ROLLBACK_DIR/rollback.sh")
+        ssh server "env WP_ROOT=$WP_ROOT_Q REPO_NAME=$REPO_NAME_Q bash $ROLLBACK_SCRIPT_Q"
+
+    - name: Clean up remote temporary directory
+      if: always()
+      shell: bash
+      run: |
+        ROLLBACK_DIR_Q=$(printf '%q' "$ROLLBACK_DIR")
+        ssh server "rm -rf $ROLLBACK_DIR_Q" || true

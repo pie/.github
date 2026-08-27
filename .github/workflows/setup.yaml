@@ -1,0 +1,18 @@
+name: Setup
+
+on:
+  workflow_call:
+    outputs:
+      short-sha:
+        description: "Short (8-character) git commit SHA for use in release directory paths"
+        value: ${{ jobs.setup.outputs.short_sha }}
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      short_sha: ${{ steps.sha.outputs.short_sha }}
+    steps:
+      - id: sha
+        shell: bash
+        run: echo "short_sha=${GITHUB_SHA:0:8}" >> $GITHUB_OUTPUT

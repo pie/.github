@@ -1,0 +1,61 @@
+name: Rollback Migrations
+
+on:
+  workflow_call:
+    inputs:
+      ssh-host:
+        type: string
+        description: "SSH host to connect to"
+        required: true
+      ssh-user:
+        type: string
+        description: "SSH user to connect with"
+        required: false
+        default: piecode
+      ssh-port:
+        type: number
+        description: "SSH port to connect to"
+        required: false
+        default: 22
+      wp-root:
+        type: string
+        description: "Absolute path to the WordPress root on the remote server (must start with /)"
+        required: true
+      releases-dir:
+        type: string
+        description: "Absolute path to a writable directory on the server, used only to stage a temporary working directory for this run. Defaults to a 'releases' subdirectory inside wp-root when not set."
+        required: false
+        default: ""
+      migrations-path:
+        type: string
+        description: "Local path (relative to the checked-out repo) containing the migrations directory, i.e. the parent of migrations/queries"
+        required: false
+        default: "migrations"
+    secrets:
+      SSH_PRIVATE_KEY:
+        description: "SSH private key"
+        required: true
+
+jobs:
+  rollback_migrations:
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - uses: pie/.github/actions/add-ssh-config@feature/add-symlink-and-sql-flows
+        name: Add SSH key to runner
+        with:
+          ssh-user: ${{inputs.ssh-user}}
+          ssh-port: ${{inputs.ssh-port}}
+          ssh-host: ${{inputs.ssh-host}}
+          ssh-key: ${{secrets.SSH_PRIVATE_KEY}}
+
+      - uses: pie/.github/actions/rollback-migrations@feature/add-symlink-and-sql-flows
+        name: Roll back most recent migration batch
+        with:
+          wp-root: ${{inputs.wp-root}}
+          repo-name: ${{github.event.repository.name}}
+          releases-dir: ${{inputs.releases-dir}}
+          migrations-path: ${{inputs.migrations-path}}
