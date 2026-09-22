@@ -181,7 +181,14 @@ fi
 if [ "$HAS_MIGRATIONS" = true ]; then
 
     log "Enabling maintenance mode"
-    wp maintenance-mode activate --path="$WP_ROOT"
+    # wp-cli errors rather than no-ops if maintenance mode is already active
+    # (e.g. left on by a previous deploy that failed after enabling it, since
+    # nothing besides swap.sh's own end-of-run step turns it back off). What
+    # matters here is the outcome — the site is in maintenance mode — not
+    # whether this specific invocation is what switched it on.
+    if ! wp maintenance-mode activate --path="$WP_ROOT"; then
+        log "WARN: wp maintenance-mode activate failed — likely already active from a previous deploy, continuing"
+    fi
     MAINTENANCE_ACTIVE=true
 
     # ------------------------------------------------------------------
