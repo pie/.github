@@ -30,6 +30,11 @@ on:
         description: "Absolute path to the releases directory on the server. Defaults to a 'releases' sibling of wp-root when not set."
         required: false
         default: ""
+      site-url:
+        type: string
+        description: "Public URL of the site (e.g. https://example.com). When set, a final check confirms releases/ isn't reachable over HTTP after the deploy — see README Requirements. Optional, but strongly recommended; the check is skipped entirely when omitted."
+        required: false
+        default: ""
     secrets:
       SSH_PRIVATE_KEY:
         description: "SSH private key"
@@ -65,3 +70,30 @@ jobs:
           repo-name: ${{github.event.repository.name}}
           components: ${{inputs.components}}
           releases-dir: ${{inputs.releases-dir}}
+
+      - name: Verify releases/ is not publicly reachable
+        if: always()
+        shell: bash
+        env:
+          SITE_URL: ${{ inputs.site-url }}
+          SHORT_SHA: ${{ steps.sha.outputs.short_sha }}
+        run: |
+          if [ -z "$SITE_URL" ]; then
+            echo "site-url not set — skipping releases/ exposure check. See README Requirements."
+            exit 0
+          fi
+
+          # Deliberately doesn't affect the deploy above, which has already
+          # fully completed by this point — there's nothing to roll back.
+          # This only determines whether the job is reported as failed, so
+          # an exposed releases/ directory surfaces via GitHub's own
+          # workflow-failure notification instead of going unnoticed.
+          CHECK_URL="${SITE_URL%/}/releases/${SHORT_SHA}/migrations/components.txt"
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$CHECK_URL")
+
+          if [ "$STATUS" = "200" ]; then
+            echo "::error::releases/ is publicly reachable — $CHECK_URL returned HTTP 200. The deploy above already completed; this needs the host-side protection in the README's Requirements section fixed before the next deploy."
+            exit 1
+          fi
+
+          echo "releases/ exposure check passed — $CHECK_URL returned HTTP $STATUS."

@@ -15,8 +15,10 @@ Rsync jobs deploy each component to a release directory keyed by the short SHA (
 1. Verifies WP-CLI can reach the database
 2. Checks for pending SQL migrations
 3. If any: enables maintenance mode → dry-runs the pending migrations against structure-only clones of the live tables (no data, dropped immediately after) and bails out with maintenance mode deactivated if any fail → runs migrations directly against the live tables
-4. Rsyncs each component from the release directory to a hidden staging path, then atomically renames it into place
+4. Creates `releases/.htaccess` and tightens `releases/` to `chmod 700` (see **Requirements** below), then rsyncs each component from the release directory to a hidden staging path and atomically renames it into place
 5. Prunes releases older than 1 prior
+
+If `site-url` is set, the `atomic_deploy` job then runs one more check after `swap.sh` finishes: fetching a file under `releases/` over real HTTP and failing the job if it's actually reachable — this doesn't touch the deploy, which has already completed by that point, but does surface as a failed run (see **Requirements**).
 
 Failures are handled based on how far the deploy got:
 
@@ -53,16 +55,21 @@ Earlier versions of this workflow cloned every table to a new prefix, migrated t
 
 **Requirements:**
 
-Before running this workflow, block public HTTP access to `releases/` under `wp-root`:
+`releases/` lives inside `wp-root` — not a sibling of it — because some hosts (confirmed on at least two we've deployed to) don't grant the deploy user write access above the web root. That means it's web-reachable by default unless blocked, and no single mechanism guarantees that across every host, so this uses three layers together rather than relying on any one of them:
 
-- **Apache** — create `releases/.htaccess` containing:
-  ```apache
-  Require all denied
-  ```
-- **Nginx** — add to the site's server block:
-  ```nginx
-  location ~ ^/releases/ { deny all; }
-  ```
+1. **Automatic, every deploy:** `swap.sh` creates `releases/.htaccess` (`Require all denied`) and tightens the directory to `chmod 700`. Neither is a guarantee on its own — `.htaccess` only takes effect on Apache with `AllowOverride` enabled for that path, and the permission tightening only blocks the web server where it runs as a *different* OS user than the deploy user, which isn't true on most per-site shared hosting (PHP-FPM-per-user, `suexec`, etc. — the same architecture that forces `releases/` inside `wp-root` in the first place). Both are free and layer on top of whichever of the below actually applies.
+2. **Manual, one-time, per host — do this before your first deploy:** add the actual server-level deny rule, since (1) can't be relied on alone:
+   - **Apache** (if `AllowOverride` isn't already enabled for `wp-root`) — add to the vhost config:
+     ```apache
+     <Directory "/path/to/wp-root/releases">
+       Require all denied
+     </Directory>
+     ```
+   - **Nginx** — add to the site's server block:
+     ```nginx
+     location ~ ^/releases/ { deny all; }
+     ```
+3. **Automatic, every deploy, if `site-url` is set:** a final workflow step fetches a known file under `releases/` over real HTTP and fails the job if it's actually reachable — see **Inputs** below. This is what actually confirms (1) and (2) are working, rather than trusting either blindly; it doesn't affect the deploy itself, which has already fully completed by the time this runs.
 
 **Inputs:**
 
@@ -71,6 +78,7 @@ Before running this workflow, block public HTTP access to `releases/` under `wp-
 - `components`: Newline-separated list of components in `type:name` format. Required.
 - `ssh-port`: SSH port. Optional, default is `22`.
 - `ssh-user`: SSH user. Optional, default is `piecode`.
+- `site-url`: Public URL of the site (e.g. `https://example.com`). Optional, but strongly recommended — enables the post-deploy `releases/` exposure check described above. The check is skipped entirely when this is omitted.
 
 **Secrets:**
 
@@ -123,6 +131,7 @@ jobs:
     with:
       ssh-host: example.com
       wp-root: /home/piecode/site/public_html
+      site-url: https://example.com
       components: |
         plugins:my-plugin
         themes:my-theme

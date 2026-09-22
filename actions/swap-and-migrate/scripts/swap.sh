@@ -273,6 +273,19 @@ log "Deploying components for release $GIT_SHA"
 
 mkdir -p "$RELEASES_DIR"
 
+# Best-effort protection against RELEASES_DIR being served over HTTP — it
+# lives inside wp-root because some hosts won't grant write access above the
+# web root (see README Requirements). Neither of these is a guarantee on its
+# own: .htaccess only works on Apache with AllowOverride enabled, and the
+# permission tightening only blocks the web server where it runs as a
+# different OS user than this deploy user — the same user on most per-site
+# shared hosting. The active check at the end of the atomic-deploy workflow
+# is what actually confirms this worked, regardless of which of these apply.
+if [ ! -f "$RELEASES_DIR/.htaccess" ]; then
+    printf 'Require all denied\n' > "$RELEASES_DIR/.htaccess"
+fi
+chmod 700 "$RELEASES_DIR" || true
+
 for COMPONENT in "${COMPONENTS[@]}"; do
     TYPE="${COMPONENT%%:*}"
     NAME="${COMPONENT##*:}"
