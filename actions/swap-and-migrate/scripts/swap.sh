@@ -16,9 +16,13 @@ set -euo pipefail
 # patches against a staging copy first.
 #
 # Injected by the action:
-#   WP_ROOT    Absolute path to the WordPress root (e.g. /home/piecode/site/public_html)
-#   GIT_SHA    Git commit SHA for this deployment (8-character short SHA is acceptable)
-#   REPO_NAME  GitHub repository name (used to derive migrations table name)
+#   WP_ROOT       Absolute path to the WordPress root (e.g. /home/piecode/site/public_html)
+#   GIT_SHA       Short (8-character) git commit SHA — used for the release directory name only
+#   FULL_GIT_SHA  Full (40-character) git commit SHA — used to group migrations by deploy in
+#                 the tracking table. The short SHA isn't safe for this: as a repository grows,
+#                 two different commits can share the same short-SHA prefix, which would make a
+#                 rollback revert migrations from two unrelated deploys as if they were one batch.
+#   REPO_NAME     GitHub repository name (used to derive migrations table name)
 #
 # Components are read from components.txt in the same directory, written by the
 # action before this script runs. Format: one "type:name" entry per line.
@@ -35,6 +39,27 @@ MAINTENANCE_ACTIVE=false
 SAFE_TO_RECOVER=true
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
+
+# Extracts the "Up" or "Down" section from a migration file — same
+# implementation as migrate.sh/rollback.sh. Only "up" is used here (for the
+# dry run below), but kept as both cases for consistency with those two. A
+# file with no "-- +migrate Up" marker at all is treated as one plain
+# Up-only migration — prints the whole file for "up", nothing for "down".
+extract_section() {
+    local file="$1" section="$2"
+    if [ "$section" = "down" ]; then
+        if ! grep -q '^-- +migrate Down[[:space:]]*$' "$file"; then
+            return 0
+        fi
+        awk '/^-- \+migrate Down[[:space:]]*$/{flag=1; next} flag' "$file"
+    else
+        if ! grep -q '^-- +migrate Up[[:space:]]*$' "$file"; then
+            cat "$file"
+            return 0
+        fi
+        awk '/^-- \+migrate Up[[:space:]]*$/{flag=1; next} /^-- \+migrate Down[[:space:]]*$/{flag=0} flag' "$file"
+    fi
+}
 
 # Fires on any non-zero exit via set -euo pipefail.
 #
@@ -100,12 +125,32 @@ fi
 # CURRENT_PREFIX. MySQL caps identifiers at 64 characters, so cap REPO_SLUG
 # to whatever's left, instead of a flat cut that ignores the prefix entirely.
 MIGRATIONS_SUFFIX="_migrations"
+REPO_SLUG_RAW="$(printf '%s' "$REPO_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g')"
 MAX_SLUG_LEN=$(( 64 - ${#CURRENT_PREFIX} - ${#MIGRATIONS_SUFFIX} ))
 if [ "$MAX_SLUG_LEN" -lt 1 ]; then
     echo "ERROR: table_prefix '$CURRENT_PREFIX' is too long to derive a migrations table name within MySQL's 64-character identifier limit." >&2
     exit 1
 fi
-REPO_SLUG="$(printf '%s' "$REPO_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g' | cut -c1-"$MAX_SLUG_LEN")"
+
+if [ "${#REPO_SLUG_RAW}" -gt "$MAX_SLUG_LEN" ]; then
+    # A flat cut here risks two different repo names truncating to the same
+    # prefix (e.g. "client-a-main-site" and "client-a-staging-site"), which
+    # would collide on one shared tracking table. Reserve room for a short,
+    # deterministic hash of the full name so a truncated slug still stays
+    # unique even when its visible prefix doesn't. Left alone (the common
+    # case — most repo names never hit this branch), REPO_SLUG is unchanged
+    # from before, so already-deployed sites keep resolving to the same
+    # tracking table they always have.
+    REPO_HASH="$(printf '%s' "$REPO_NAME" | md5sum | cut -c1-8)"
+    TRUNCATE_LEN=$(( MAX_SLUG_LEN - 1 - ${#REPO_HASH} ))
+    if [ "$TRUNCATE_LEN" -lt 1 ]; then
+        echo "ERROR: table_prefix '$CURRENT_PREFIX' is too long to derive a collision-resistant migrations table name within MySQL's 64-character identifier limit." >&2
+        exit 1
+    fi
+    REPO_SLUG="$(printf '%s' "$REPO_SLUG_RAW" | cut -c1-"$TRUNCATE_LEN")_${REPO_HASH}"
+else
+    REPO_SLUG="$REPO_SLUG_RAW"
+fi
 
 MIGRATIONS_TABLE="${CURRENT_PREFIX}${REPO_SLUG}_migrations"
 
@@ -155,9 +200,27 @@ done
 PENDING_FILES=()
 
 if [ -d "$QUERIES_DIR" ]; then
-    APPLIED=$(wp db query \
-        "SELECT filename FROM \`$MIGRATIONS_TABLE\`" \
-        --path="$WP_ROOT" --skip-column-names 2>/dev/null || echo "")
+    # Unlike migrate.sh/rollback.sh, nothing has created the tracking table
+    # by this point — on a genuinely first-ever deploy it may not exist yet,
+    # which is a real, expected case here. But that's different from "the
+    # table exists and this query failed for some other reason" (DB
+    # connectivity, permissions) — check for existence explicitly instead of
+    # swallowing every failure the same way, so only the legitimate case is
+    # treated as "nothing applied yet" and a real failure still propagates
+    # rather than silently making every already-applied migration look
+    # pending again.
+    MIGRATIONS_TABLE_EXISTS=$(wp db query \
+        "SELECT COUNT(*) FROM information_schema.TABLES \
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '$MIGRATIONS_TABLE'" \
+        --path="$WP_ROOT" --skip-column-names)
+
+    if [ "$MIGRATIONS_TABLE_EXISTS" -eq 0 ]; then
+        APPLIED=""
+    else
+        APPLIED=$(wp db query \
+            "SELECT filename FROM \`$MIGRATIONS_TABLE\`" \
+            --path="$WP_ROOT" --skip-column-names)
+    fi
 
     while IFS= read -r SQL_FILE; do
         FILENAME=$(basename "$SQL_FILE")
@@ -183,12 +246,22 @@ if [ "$HAS_MIGRATIONS" = true ]; then
     log "Enabling maintenance mode"
     # wp-cli errors rather than no-ops if maintenance mode is already active
     # (e.g. left on by a previous deploy that failed after enabling it, since
-    # nothing besides swap.sh's own end-of-run step turns it back off). What
-    # matters here is the outcome — the site is in maintenance mode — not
-    # whether this specific invocation is what switched it on.
-    if ! wp maintenance-mode activate --path="$WP_ROOT"; then
-        log "WARN: wp maintenance-mode activate failed — likely already active from a previous deploy, continuing"
+    # nothing besides swap.sh's own end-of-run step turns it back off) — that
+    # specific case is fine to continue past. But a bare "tolerate the
+    # failure and assume it means already-active" can't tell that apart from
+    # a permission or CLI failure that means maintenance mode never actually
+    # turned on — in which case continuing to the live migration below would
+    # run DDL while the site is still serving traffic, exactly what
+    # maintenance mode exists to prevent. Verify the actual outcome directly
+    # (the .maintenance file is the ground truth WordPress itself checks)
+    # rather than trusting what the exit code implies.
+    wp maintenance-mode activate --path="$WP_ROOT" || true
+
+    if [ ! -f "$WP_ROOT/.maintenance" ]; then
+        echo "ERROR: Could not confirm maintenance mode is active (no .maintenance file at $WP_ROOT after activation attempt) — refusing to run live migrations while the site may still be serving traffic." >&2
+        exit 1
     fi
+
     MAINTENANCE_ACTIVE=true
 
     # ------------------------------------------------------------------
@@ -226,7 +299,7 @@ if [ "$HAS_MIGRATIONS" = true ]; then
         for SQL_FILE in "${PENDING_FILES[@]}"; do
             FILENAME=$(basename "$SQL_FILE")
             log "Dry run: applying $FILENAME"
-            if ! sed "s/__WP_PREFIX__/${DRYRUN_PREFIX}/g" "$SQL_FILE" | wp db query --path="$WP_ROOT"; then
+            if ! extract_section "$SQL_FILE" up | sed "s/__WP_PREFIX__/${DRYRUN_PREFIX}/g" | wp db query --path="$WP_ROOT"; then
                 echo "ERROR: Dry run failed applying $FILENAME" >&2
                 DRYRUN_FAILED=true
                 break
@@ -262,7 +335,7 @@ if [ "$HAS_MIGRATIONS" = true ]; then
     WP_ROOT="$WP_ROOT" \
     MIGRATIONS_TABLE="$MIGRATIONS_TABLE" \
     TARGET_PREFIX="$CURRENT_PREFIX" \
-    BATCH="$SHORT_SHA" \
+    BATCH="$FULL_GIT_SHA" \
         bash "$MIGRATE_SCRIPT"
 
     log "Database migrations complete"
@@ -343,6 +416,16 @@ fi
 log "Pruning old releases"
 
 while IFS= read -r OLD_RELEASE; do
+    # releases-dir only has to be an absolute path (see action.yml) — nothing
+    # stops it pointing at a shared directory (/tmp, /home, anything).
+    # Requiring migrations/components.txt — present in every release this
+    # pipeline creates, since the action uploads it unconditionally — means
+    # an unrelated sibling directory there is never a match, no matter how
+    # old it is, rather than being swept up by name/age alone.
+    if [ ! -f "$OLD_RELEASE/migrations/components.txt" ]; then
+        log "  Skipping $OLD_RELEASE — doesn't look like a release this pipeline created"
+        continue
+    fi
     log "  Removing $OLD_RELEASE"
     rm -rf "$OLD_RELEASE" || log "WARN: Could not remove $OLD_RELEASE — manual cleanup may be needed"
 done < <(find "$RELEASES_DIR" -maxdepth 1 -mindepth 1 -type d \

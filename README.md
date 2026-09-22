@@ -4,18 +4,38 @@ This repository contains reusable workflows and composite actions for managing r
 
 ## Workflows
 
+### Prepare Releases Directory
+
+Creates and protects `releases/` — `.htaccess` (`Require all denied`) plus `chmod 700` — before anything is uploaded into it. Must run as the first job in the deploy pipeline, before the plugin/theme/migrations rsync jobs and before Atomic Deploy: those all upload content to `releases/` independently, and each does so before `swap.sh` (which repeats this same protection, but too late to matter if a rsync job or an early migration failure means `swap.sh` never gets that far) ever runs. Protecting an empty directory before anything lands in it, rather than a populated one after the fact, is what actually closes that gap.
+
+**Inputs:**
+
+- `ssh-host`: SSH host. Required.
+- `wp-root`: Absolute path to the WordPress root on the server. Required. Must start with `/`.
+- `ssh-port`: SSH port. Optional, default is `22`.
+- `ssh-user`: SSH user. Optional, default is `piecode`.
+- `releases-dir`: Absolute path to the releases directory on the server. Optional, defaults to a `releases` subdirectory inside `wp-root` — must match whatever `releases-dir` Atomic Deploy is given, if that's overridden.
+
+**Secrets:**
+
+- `SSH_PRIVATE_KEY`: SSH private key. Required — the same one used for Atomic Deploy.
+
+**Example:** see Atomic Deploy's example below — `prepare_releases_dir` is the job every upload job (and, transitively, `atomic_deploy`) depends on.
+
+---
+
 ### Atomic Deploy
 
 Deploys components to a release directory keyed by the short (8-character) git commit SHA, then atomically swaps them into place and runs any pending database migrations directly against the live tables. When migrations are pending, the database work and component swap are performed inside a maintenance window. When there are no pending migrations, components are swapped with no downtime. Migrations run with no table clone or automated backup — the only pre-flight check is a dry run against a disposable structure-only clone. Take a full site backup and confirm migrations against staging before deploying; see **Migrations run against live tables** below.
 
 **How it works:**
 
-Rsync jobs deploy each component to a release directory keyed by the short SHA (see the `setup` workflow's `short-sha` output). Once all jobs complete, the `atomic_deploy` job SSH's in and runs `swap.sh`, which:
+The **Prepare Releases Directory** workflow (see below) must run first, before anything is rsynced anywhere — it creates and protects `releases/` while it's still empty, so the protection in step 4 below isn't the first time it's applied. Rsync jobs then deploy each component to a release directory keyed by the short SHA (see the `setup` workflow's `short-sha` output). Once all jobs complete, the `atomic_deploy` job SSH's in and runs `swap.sh`, which:
 
 1. Verifies WP-CLI can reach the database
 2. Checks for pending SQL migrations
 3. If any: enables maintenance mode → dry-runs the pending migrations against structure-only clones of the live tables (no data, dropped immediately after) and bails out with maintenance mode deactivated if any fail → runs migrations directly against the live tables
-4. Creates `releases/.htaccess` and tightens `releases/` to `chmod 700` (see **Requirements** below), then rsyncs each component from the release directory to a hidden staging path and atomically renames it into place
+4. Creates `releases/.htaccess` and tightens `releases/` to `chmod 700` if they aren't already there (see **Requirements** below — a defensive, idempotent repeat of what Prepare Releases Directory already did before any upload happened, not the first application of it), then rsyncs each component from the release directory to a hidden staging path and atomically renames it into place
 5. Prunes releases older than 1 prior
 
 If `site-url` is set, the `atomic_deploy` job then runs one more check after `swap.sh` finishes: fetching a file under `releases/` over real HTTP and failing the job if it's actually reachable — this doesn't touch the deploy, which has already completed by that point, but does surface as a failed run (see **Requirements**).
@@ -57,7 +77,7 @@ Earlier versions of this workflow cloned every table to a new prefix, migrated t
 
 `releases/` lives inside `wp-root` — not a sibling of it — because some hosts (confirmed on at least two we've deployed to) don't grant the deploy user write access above the web root. That means it's web-reachable by default unless blocked, and no single mechanism guarantees that across every host, so this uses three layers together rather than relying on any one of them:
 
-1. **Automatic, every deploy:** `swap.sh` creates `releases/.htaccess` (`Require all denied`) and tightens the directory to `chmod 700`. Neither is a guarantee on its own — `.htaccess` only takes effect on Apache with `AllowOverride` enabled for that path, and the permission tightening only blocks the web server where it runs as a *different* OS user than the deploy user, which isn't true on most per-site shared hosting (PHP-FPM-per-user, `suexec`, etc. — the same architecture that forces `releases/` inside `wp-root` in the first place). Both are free and layer on top of whichever of the below actually applies.
+1. **Automatic, before anything is uploaded:** the **Prepare Releases Directory** workflow creates `releases/.htaccess` (`Require all denied`) and tightens the directory to `chmod 700` — required as the first job in the deploy pipeline (see its own section below), so `releases/` is protected before the plugin/theme/migrations rsync jobs or `swap-and-migrate`'s own upload ever put anything in it. `swap.sh` repeats the same thing, idempotently, as a defensive fallback — but that runs after this deploy's own dry run and live migrations, which is too late to matter if either of those fails first; the workflow running first is what actually closes the gap. Neither is a guarantee on its own regardless of timing — `.htaccess` only takes effect on Apache with `AllowOverride` enabled for that path, and the permission tightening only blocks the web server where it runs as a *different* OS user than the deploy user, which isn't true on most per-site shared hosting (PHP-FPM-per-user, `suexec`, etc. — the same architecture that forces `releases/` inside `wp-root` in the first place).
 2. **Manual, one-time, per host — do this before your first deploy:** add the actual server-level deny rule, since (1) can't be relied on alone:
    - **Apache** (if `AllowOverride` isn't already enabled for `wp-root`) — add to the vhost config:
      ```apache
@@ -96,8 +116,17 @@ jobs:
   setup:
     uses: pie/.github/.github/workflows/setup.yaml@main
 
-  deploy_plugin:
+  prepare_releases_dir:
     needs: setup
+    uses: pie/.github/.github/workflows/prepare-releases-dir.yaml@main
+    with:
+      ssh-host: example.com
+      wp-root: /home/piecode/site/public_html
+    secrets:
+      SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
+
+  deploy_plugin:
+    needs: [setup, prepare_releases_dir]
     uses: pie/.github/.github/workflows/deploy.yaml@main
     with:
       ssh-host: example.com
@@ -107,7 +136,7 @@ jobs:
       SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
 
   deploy_theme:
-    needs: setup
+    needs: [setup, prepare_releases_dir]
     uses: pie/.github/.github/workflows/deploy.yaml@main
     with:
       ssh-host: example.com
@@ -116,7 +145,7 @@ jobs:
       SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
 
   deploy_migrations:
-    needs: setup
+    needs: [setup, prepare_releases_dir]
     uses: pie/.github/.github/workflows/deploy.yaml@main
     with:
       ssh-host: example.com
@@ -374,6 +403,7 @@ These composite actions are used internally by the workflows above but can also 
 | `add-ssh-pass` | Installs sshpass and configures password-based SSH authentication |
 | `deploy-via-rsync` | Runs an optional Composer/npm build then deploys files via rsync |
 | `deploy-via-ftp` | Runs an optional Composer/npm build then deploys files via FTP |
+| `prepare-releases-dir` | Creates and protects the releases directory before anything is uploaded into it |
 | `rollback-migrations` | Reverts the most recently applied batch of database migrations over SSH |
 | `swap-and-migrate` | Runs DB migrations and atomic component swap in a single SSH session |
 | `synchronise-remote` | Executes a synchronisation script on a remote server over SSH |

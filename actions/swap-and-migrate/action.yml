@@ -6,7 +6,10 @@ inputs:
     description: "Absolute path to the WordPress root on the remote server (must start with /)"
     required: true
   git-sha:
-    description: "Git commit SHA for the current deployment"
+    description: "Short git commit SHA for the current deployment — used for the release directory name only"
+    required: true
+  full-git-sha:
+    description: "Full (40-character) git commit SHA for the current deployment — used to group migrations by deploy in the tracking table. The short SHA alone isn't safe for this: as a repository grows, two different commits can share the same short-SHA prefix, which would make a rollback revert migrations from two unrelated deploys as if they were one batch."
     required: true
   repo-name:
     description: "Repository name used to derive the migrations tracking table name"
@@ -69,12 +72,14 @@ runs:
       env:
         WP_ROOT: ${{ inputs.wp-root }}
         GIT_SHA: ${{ inputs.git-sha }}
+        FULL_GIT_SHA: ${{ inputs.full-git-sha }}
         REPO_NAME: ${{ inputs.repo-name }}
         RELEASES_DIR_INPUT: ${{ inputs.releases-dir }}
       run: |
         set +e
         WP_ROOT_Q=$(printf '%q' "$WP_ROOT")
         GIT_SHA_Q=$(printf '%q' "$GIT_SHA")
+        FULL_GIT_SHA_Q=$(printf '%q' "$FULL_GIT_SHA")
         REPO_NAME_Q=$(printf '%q' "$REPO_NAME")
         if [ -n "$RELEASES_DIR_INPUT" ]; then
           RELEASES_DIR="$RELEASES_DIR_INPUT"
@@ -84,7 +89,7 @@ runs:
         RELEASES_DIR_Q=$(printf '%q' "$RELEASES_DIR")
         SWAP_SCRIPT="$RELEASES_DIR/$GIT_SHA/migrations/swap.sh"
         SWAP_SCRIPT_Q=$(printf '%q' "$SWAP_SCRIPT")
-        ssh server "env WP_ROOT=$WP_ROOT_Q GIT_SHA=$GIT_SHA_Q REPO_NAME=$REPO_NAME_Q RELEASES_DIR=$RELEASES_DIR_Q bash $SWAP_SCRIPT_Q"
+        ssh server "env WP_ROOT=$WP_ROOT_Q GIT_SHA=$GIT_SHA_Q FULL_GIT_SHA=$FULL_GIT_SHA_Q REPO_NAME=$REPO_NAME_Q RELEASES_DIR=$RELEASES_DIR_Q bash $SWAP_SCRIPT_Q"
         SSH_EXIT=$?
         set -e
         echo "ssh_exit=${SSH_EXIT}" >> "$GITHUB_OUTPUT"

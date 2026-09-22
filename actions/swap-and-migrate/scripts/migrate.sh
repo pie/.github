@@ -34,8 +34,10 @@ set -euo pipefail
 #   MIGRATIONS_TABLE  Tracking table name (pre-computed by swap.sh)
 #   TARGET_PREFIX     Table prefix to target — the live prefix (e.g. wp_)
 #   BATCH             Identifier grouping migrations applied by this deploy
-#                      (the deploy's short SHA) — rollback.sh undoes one
-#                      batch at a time.
+#                      (the deploy's full 40-character commit SHA — not the
+#                      short one, which can collide between two different
+#                      commits as a repository grows) — rollback.sh undoes
+#                      one batch at a time.
 # ==============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -71,12 +73,33 @@ wp db query "
     CREATE TABLE IF NOT EXISTS \`$MIGRATIONS_TABLE\` (
         id         INT AUTO_INCREMENT PRIMARY KEY,
         filename   VARCHAR(255) NOT NULL UNIQUE,
-        batch      VARCHAR(8)   NOT NULL DEFAULT '',
+        batch      VARCHAR(40)  NOT NULL DEFAULT '',
         applied_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
 " --path="$WP_ROOT"
 
-wp db query "ALTER TABLE \`$MIGRATIONS_TABLE\` ADD COLUMN IF NOT EXISTS batch VARCHAR(8) NOT NULL DEFAULT '' AFTER filename" --path="$WP_ROOT"
+# "ADD COLUMN IF NOT EXISTS" is a MySQL 8.0.29+/MariaDB extension, not
+# standard SQL — a syntax error on stock MySQL 5.7, still a WordPress-
+# supported minimum. information_schema.COLUMNS works everywhere, so check
+# there first and only run a plain ADD COLUMN when it's actually missing.
+#
+# Also widens an existing-but-too-narrow column: tables created by an
+# earlier version of this script have batch VARCHAR(8) (the deploy's short
+# SHA); inserting a full 40-character SHA into that would truncate silently
+# or error outright depending on SQL mode, so upgrade it in place rather
+# than assuming "exists" already means "wide enough".
+BATCH_COLUMN_LENGTH=$(wp db query \
+    "SELECT COALESCE(CHARACTER_MAXIMUM_LENGTH, 0) FROM information_schema.COLUMNS \
+     WHERE TABLE_SCHEMA = DATABASE() \
+     AND TABLE_NAME = '$MIGRATIONS_TABLE' \
+     AND COLUMN_NAME = 'batch'" \
+    --path="$WP_ROOT" --skip-column-names)
+
+if [ "$BATCH_COLUMN_LENGTH" -eq 0 ]; then
+    wp db query "ALTER TABLE \`$MIGRATIONS_TABLE\` ADD COLUMN batch VARCHAR(40) NOT NULL DEFAULT '' AFTER filename" --path="$WP_ROOT"
+elif [ "$BATCH_COLUMN_LENGTH" -lt 40 ]; then
+    wp db query "ALTER TABLE \`$MIGRATIONS_TABLE\` MODIFY COLUMN batch VARCHAR(40) NOT NULL DEFAULT ''" --path="$WP_ROOT"
+fi
 
 # ==============================================================================
 # Step 2: Find pending migrations
@@ -87,9 +110,16 @@ if [ ! -d "$QUERIES_DIR" ]; then
     exit 0
 fi
 
+# No error-swallowing fallback: Step 1 above already guarantees the table
+# exists, so a failure here means a real problem (DB connectivity,
+# permissions) — that must propagate and stop the script via set -e, not
+# get substituted with an empty "nothing applied yet" result. Treating a
+# transient failure as "nothing applied" would mark every already-applied
+# migration as pending again and replay them, which for a non-idempotent
+# migration can modify data twice or fail partway through live changes.
 APPLIED=$(wp db query \
     "SELECT filename FROM \`$MIGRATIONS_TABLE\`" \
-    --path="$WP_ROOT" --skip-column-names 2>/dev/null || echo "")
+    --path="$WP_ROOT" --skip-column-names)
 
 PENDING=()
 while IFS= read -r SQL_FILE; do

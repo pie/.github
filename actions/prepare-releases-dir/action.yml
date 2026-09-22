@@ -1,0 +1,55 @@
+name: Prepare Releases Directory
+description: "Creates and protects the releases directory before anything is uploaded into it"
+
+inputs:
+  wp-root:
+    description: "Absolute path to the WordPress root on the remote server (must start with /)"
+    required: true
+  releases-dir:
+    description: "Absolute path to the releases directory on the server. Defaults to a 'releases' subdirectory inside wp-root when not set."
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Validate inputs
+      shell: bash
+      env:
+        WP_ROOT: ${{ inputs.wp-root }}
+        RELEASES_DIR_INPUT: ${{ inputs.releases-dir }}
+      run: |
+        if [[ "$WP_ROOT" != '/'* ]]; then
+          echo "Error: wp-root must be an absolute path starting with / (e.g. /home/piecode/site/public_html)." >&2
+          exit 1
+        fi
+
+        if [ -n "$RELEASES_DIR_INPUT" ] && [[ "$RELEASES_DIR_INPUT" != '/'* ]]; then
+          echo "Error: releases-dir must be an absolute path starting with / (e.g. /home/piecode/site/public_html/releases)." >&2
+          exit 1
+        fi
+
+    - name: Create and protect releases directory
+      shell: bash
+      env:
+        WP_ROOT: ${{ inputs.wp-root }}
+        RELEASES_DIR_INPUT: ${{ inputs.releases-dir }}
+      run: |
+        if [ -n "$RELEASES_DIR_INPUT" ]; then
+          RELEASES_DIR="$RELEASES_DIR_INPUT"
+        else
+          RELEASES_DIR="$WP_ROOT/releases"
+        fi
+        RELEASES_DIR_Q=$(printf '%q' "$RELEASES_DIR")
+
+        # Runs before the plugin/theme/migrations rsync jobs and before
+        # swap-and-migrate uploads swap.sh/migrate.sh/components.txt —
+        # deliberately, so releases-dir is protected before anything ever
+        # lands in it, not only from swap.sh's Step 4 onward. swap.sh still
+        # repeats this on every deploy as a defensive, idempotent fallback
+        # (e.g. for callers that haven't added this job yet), but that alone
+        # runs after this deploy's own dry run and live migrations, which is
+        # too late if either of those fails first.
+        ssh server "mkdir -p $RELEASES_DIR_Q"
+        ssh server "[ -f $RELEASES_DIR_Q/.htaccess ] || printf 'Require all denied\n' > $RELEASES_DIR_Q/.htaccess"
+        ssh server "chmod 700 $RELEASES_DIR_Q"
