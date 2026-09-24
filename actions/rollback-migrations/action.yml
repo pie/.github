@@ -26,13 +26,13 @@ runs:
         WP_ROOT: ${{ inputs.wp-root }}
         RELEASES_DIR_INPUT: ${{ inputs.releases-dir }}
       run: |
-        if [[ "$WP_ROOT" != '/'* ]]; then
-          echo "Error: wp-root must be an absolute path starting with / (e.g. /home/piecode/site/public_html)." >&2
+        if [[ "$WP_ROOT" != '/'* ]] || [ "$WP_ROOT" = "/" ]; then
+          echo "Error: wp-root must be an absolute path starting with / and not the filesystem root itself (e.g. /home/piecode/site/public_html)." >&2
           exit 1
         fi
 
-        if [ -n "$RELEASES_DIR_INPUT" ] && [[ "$RELEASES_DIR_INPUT" != '/'* ]]; then
-          echo "Error: releases-dir must be an absolute path starting with / (e.g. /home/piecode/site/public_html/releases)." >&2
+        if [ -n "$RELEASES_DIR_INPUT" ] && { [[ "$RELEASES_DIR_INPUT" != '/'* ]] || [ "$RELEASES_DIR_INPUT" = "/" ]; }; then
+          echo "Error: releases-dir must be an absolute path starting with / and not the filesystem root itself (e.g. /home/piecode/site/public_html/releases)." >&2
           exit 1
         fi
 
@@ -55,12 +55,19 @@ runs:
         ROLLBACK_DIR="$RELEASES_DIR/.rollback-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
         echo "ROLLBACK_DIR=$ROLLBACK_DIR" >> "$GITHUB_ENV"
 
+        # Must exist locally — silently uploading nothing here would leave
+        # rollback.sh unable to find any Down section for an applied
+        # migration, so it'd skip every one with a warning and still report
+        # the batch as successfully rolled back.
+        if [ ! -d "$MIGRATIONS_PATH/queries" ]; then
+          echo "Error: $MIGRATIONS_PATH/queries not found — check the migrations-path input." >&2
+          exit 1
+        fi
+
         ROLLBACK_DIR_Q=$(printf '%q' "$ROLLBACK_DIR")
         ssh server "mkdir -p $ROLLBACK_DIR_Q/queries"
         scp "$GITHUB_ACTION_PATH/scripts/rollback.sh" "server:$ROLLBACK_DIR/rollback.sh"
-        if [ -d "$MIGRATIONS_PATH/queries" ]; then
-          rsync -a "$MIGRATIONS_PATH/queries/" "server:$ROLLBACK_DIR/queries/"
-        fi
+        rsync -a "$MIGRATIONS_PATH/queries/" "server:$ROLLBACK_DIR/queries/"
 
     - name: Run rollback
       shell: bash

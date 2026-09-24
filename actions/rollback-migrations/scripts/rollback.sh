@@ -45,8 +45,8 @@ extract_section() {
     fi
 }
 
-if [[ "$WP_ROOT" != '/'* ]]; then
-    echo "ERROR: WP_ROOT must be an absolute path starting with / (e.g. /home/piecode/site/public_html)." >&2
+if [[ "$WP_ROOT" != '/'* ]] || [ "$WP_ROOT" = "/" ]; then
+    echo "ERROR: WP_ROOT must be an absolute path starting with / and not the filesystem root itself (e.g. /home/piecode/site/public_html)." >&2
     exit 1
 fi
 
@@ -165,8 +165,15 @@ if [ -f "$WP_ROOT/.maintenance" ]; then
     log "Maintenance mode already active — leaving it as-is"
 else
     log "Enabling maintenance mode"
-    if ! wp maintenance-mode activate --path="$WP_ROOT"; then
-        log "WARN: wp maintenance-mode activate failed — continuing anyway"
+    # wp-cli errors if already active — tolerate that, but verify against the
+    # actual .maintenance file rather than trusting the exit code, since a
+    # genuine permission/CLI failure would otherwise look the same and let
+    # live Down SQL run while the site may still be serving traffic.
+    wp maintenance-mode activate --path="$WP_ROOT" || true
+
+    if [ ! -f "$WP_ROOT/.maintenance" ]; then
+        echo "ERROR: Could not confirm maintenance mode is active (no .maintenance file at $WP_ROOT after activation attempt) — refusing to run live rollback SQL while the site may still be serving traffic." >&2
+        exit 1
     fi
 fi
 

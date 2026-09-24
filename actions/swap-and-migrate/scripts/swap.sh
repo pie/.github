@@ -79,8 +79,16 @@ trap cleanup EXIT
 
 log "Atomic deploy starting — SHA: $GIT_SHA"
 
-if [[ "$WP_ROOT" != '/'* ]]; then
-    echo "ERROR: WP_ROOT must be an absolute path starting with / (e.g. /home/piecode/site/public_html)." >&2
+if [[ "$WP_ROOT" != '/'* ]] || [ "$WP_ROOT" = "/" ]; then
+    echo "ERROR: WP_ROOT must be an absolute path starting with / and not the filesystem root itself (e.g. /home/piecode/site/public_html)." >&2
+    exit 1
+fi
+
+# Step 4 later runs mkdir/chmod/writes an .htaccess directly against
+# RELEASES_DIR — refuse the exact-"/" case here too, not just via the
+# action's own input validation, since this script also runs standalone.
+if [ "$RELEASES_DIR" = "/" ]; then
+    echo "ERROR: releases-dir resolved to the filesystem root — refusing to touch it." >&2
     exit 1
 fi
 
@@ -153,10 +161,11 @@ done
 
 log "Validating component release paths"
 for COMPONENT in "${COMPONENTS[@]}"; do
+    TYPE="${COMPONENT%%:*}"
     NAME="${COMPONENT##*:}"
-    RELEASE_PATH="$NEW_RELEASE_DIR/$NAME"
+    RELEASE_PATH="$NEW_RELEASE_DIR/$TYPE/$NAME"
     if [ ! -d "$RELEASE_PATH" ]; then
-        echo "ERROR: $RELEASE_PATH not found — did the rsync job for $NAME complete?" >&2
+        echo "ERROR: $RELEASE_PATH not found — did the rsync job for $TYPE:$NAME complete?" >&2
         exit 1
     fi
 done
@@ -312,8 +321,8 @@ mkdir -p "$RELEASES_DIR"
 # Protects releases/ from being served over HTTP — best-effort only; see
 # README Requirements for why (.htaccess/AllowOverride, permission model on
 # shared hosting) and the active check that actually confirms it worked.
-if [ ! -f "$RELEASES_DIR/.htaccess" ]; then
-    printf 'Require all denied\n' > "$RELEASES_DIR/.htaccess"
+if [ ! -f "$RELEASES_DIR/.htaccess" ] || ! grep -qxF 'Require all denied' "$RELEASES_DIR/.htaccess"; then
+    printf 'Require all denied\n' >> "$RELEASES_DIR/.htaccess"
 fi
 chmod 700 "$RELEASES_DIR" || true
 
@@ -325,7 +334,7 @@ for COMPONENT in "${COMPONENTS[@]}"; do
     TYPE="${COMPONENT%%:*}"
     NAME="${COMPONENT##*:}"
     LIVE_PATH="$WP_ROOT/wp-content/$TYPE/$NAME"
-    RELEASE_PATH="$NEW_RELEASE_DIR/$NAME"
+    RELEASE_PATH="$NEW_RELEASE_DIR/$TYPE/$NAME"
     STAGING_PATH="${LIVE_PATH}.deploying"
     OLD_PATH="${LIVE_PATH}.previous"
 
@@ -346,7 +355,7 @@ for COMPONENT in "${COMPONENTS[@]}"; do
     TYPE="${COMPONENT%%:*}"
     NAME="${COMPONENT##*:}"
     LIVE_PATH="$WP_ROOT/wp-content/$TYPE/$NAME"
-    RELEASE_PATH="$NEW_RELEASE_DIR/$NAME"
+    RELEASE_PATH="$NEW_RELEASE_DIR/$TYPE/$NAME"
     STAGING_PATH="${LIVE_PATH}.deploying"
     OLD_PATH="${LIVE_PATH}.previous"
 

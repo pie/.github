@@ -19,13 +19,13 @@ runs:
         WP_ROOT: ${{ inputs.wp-root }}
         RELEASES_DIR_INPUT: ${{ inputs.releases-dir }}
       run: |
-        if [[ "$WP_ROOT" != '/'* ]]; then
-          echo "Error: wp-root must be an absolute path starting with / (e.g. /home/piecode/site/public_html)." >&2
+        if [[ "$WP_ROOT" != '/'* ]] || [ "$WP_ROOT" = "/" ]; then
+          echo "Error: wp-root must be an absolute path starting with / and not the filesystem root itself (e.g. /home/piecode/site/public_html)." >&2
           exit 1
         fi
 
-        if [ -n "$RELEASES_DIR_INPUT" ] && [[ "$RELEASES_DIR_INPUT" != '/'* ]]; then
-          echo "Error: releases-dir must be an absolute path starting with / (e.g. /home/piecode/site/public_html/releases)." >&2
+        if [ -n "$RELEASES_DIR_INPUT" ] && { [[ "$RELEASES_DIR_INPUT" != '/'* ]] || [ "$RELEASES_DIR_INPUT" = "/" ]; }; then
+          echo "Error: releases-dir must be an absolute path starting with / and not the filesystem root itself (e.g. /home/piecode/site/public_html/releases)." >&2
           exit 1
         fi
 
@@ -51,5 +51,5 @@ runs:
         # runs after this deploy's own dry run and live migrations, which is
         # too late if either of those fails first.
         ssh server "mkdir -p $RELEASES_DIR_Q"
-        ssh server "[ -f $RELEASES_DIR_Q/.htaccess ] || printf 'Require all denied\n' > $RELEASES_DIR_Q/.htaccess"
+        ssh server "[ -f $RELEASES_DIR_Q/.htaccess ] && grep -qxF 'Require all denied' $RELEASES_DIR_Q/.htaccess || printf 'Require all denied\n' >> $RELEASES_DIR_Q/.htaccess"
         ssh server "chmod 700 $RELEASES_DIR_Q"

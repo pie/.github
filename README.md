@@ -76,15 +76,17 @@ Earlier versions of this workflow cloned every table to a new prefix, migrated t
 /home/piecode/site/public_html/     ← WordPress root
 ├── releases/
 │   ├── {current-sha}/          ← new deploy lands here via rsync
-│   │   ├── my-plugin/
-│   │   ├── my-theme/
+│   │   ├── plugins/
+│   │   │   └── my-plugin/
+│   │   ├── themes/
+│   │   │   └── my-theme/
 │   │   └── migrations/
 │   └── {previous-sha}/         ← kept for rollback
 └── wp-content/
     ├── plugins/
-    │   └── my-plugin/      ← files copied from releases/{sha}/my-plugin/
+    │   └── my-plugin/      ← files copied from releases/{sha}/plugins/my-plugin/
     └── themes/
-        └── my-theme/       ← files copied from releases/{sha}/my-theme/
+        └── my-theme/       ← files copied from releases/{sha}/themes/my-theme/
 ```
 
 **Requirements:**
@@ -109,7 +111,7 @@ Earlier versions of this workflow cloned every table to a new prefix, migrated t
 
 - `ssh-host`: SSH host. Required.
 - `wp-root`: Absolute path to the WordPress root on the server. Required. Must start with `/`.
-- `components`: Newline-separated list of components in `type:name` format. Required.
+- `components`: Newline-separated list of components in `type:name` format. Required. The rsync job for each one must deploy to `releases/{sha}/{type}/{name}` (not just `{name}`) — otherwise a plugin and a theme sharing the same name would resolve to the same release path and clobber each other.
 - `ssh-port`: SSH port. Optional, default is `22`.
 - `ssh-user`: SSH user. Optional, default is `piecode`.
 - `site-url`: Public URL of the site (e.g. `https://example.com`). Optional, but strongly recommended — enables the post-deploy `releases/` exposure check described above. The check is skipped entirely when this is omitted.
@@ -144,7 +146,7 @@ jobs:
     uses: pie/.github/.github/workflows/deploy.yaml@main
     with:
       ssh-host: example.com
-      destination-path: /home/piecode/site/public_html/releases/${{ needs.setup.outputs.short-sha }}/my-plugin
+      destination-path: /home/piecode/site/public_html/releases/${{ needs.setup.outputs.short-sha }}/plugins/my-plugin
       npm: true
     secrets:
       SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
@@ -154,7 +156,7 @@ jobs:
     uses: pie/.github/.github/workflows/deploy.yaml@main
     with:
       ssh-host: example.com
-      destination-path: /home/piecode/site/public_html/releases/${{ needs.setup.outputs.short-sha }}/my-theme
+      destination-path: /home/piecode/site/public_html/releases/${{ needs.setup.outputs.short-sha }}/themes/my-theme
     secrets:
       SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
 
