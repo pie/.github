@@ -66,8 +66,6 @@ runs:
         printf '%s' "$DEPLOY_COMPONENTS" | ssh server "cat > $MIGRATIONS_DIR_Q/components.txt"
 
     - name: Run atomic swap and migrations
-      id: swap
-      continue-on-error: true
       shell: bash
       env:
         WP_ROOT: ${{ inputs.wp-root }}
@@ -76,7 +74,6 @@ runs:
         REPO_NAME: ${{ inputs.repo-name }}
         RELEASES_DIR_INPUT: ${{ inputs.releases-dir }}
       run: |
-        set +e
         WP_ROOT_Q=$(printf '%q' "$WP_ROOT")
         GIT_SHA_Q=$(printf '%q' "$GIT_SHA")
         FULL_GIT_SHA_Q=$(printf '%q' "$FULL_GIT_SHA")
@@ -90,12 +87,3 @@ runs:
         SWAP_SCRIPT="$RELEASES_DIR/$GIT_SHA/migrations/swap.sh"
         SWAP_SCRIPT_Q=$(printf '%q' "$SWAP_SCRIPT")
         ssh server "env WP_ROOT=$WP_ROOT_Q GIT_SHA=$GIT_SHA_Q FULL_GIT_SHA=$FULL_GIT_SHA_Q REPO_NAME=$REPO_NAME_Q RELEASES_DIR=$RELEASES_DIR_Q bash $SWAP_SCRIPT_Q"
-        SSH_EXIT=$?
-        set -e
-        echo "ssh_exit=${SSH_EXIT}" >> "$GITHUB_OUTPUT"
-        exit $SSH_EXIT
-
-    - name: Fail the job
-      if: steps.swap.outcome == 'failure'
-      shell: bash
-      run: exit 1
