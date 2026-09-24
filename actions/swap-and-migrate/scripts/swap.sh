@@ -273,10 +273,17 @@ if [ "$HAS_MIGRATIONS" = true ]; then
     # reuse the same prefix, since the clone step below already clears
     # remnants from a previous failed attempt at it.
     DRYRUN_PREFIX="dryrun_${SHORT_SHA}_${RUN_ID}_"
+
+    # MIGRATIONS_TABLE is excluded: its own name is already truncated to fit
+    # MySQL's 64-char limit under the live (short) prefix, with no headroom
+    # left for a longer one — re-prefixing it with DRYRUN_PREFIX can overflow
+    # that limit. Migrations don't need a scratch copy of their own tracking
+    # table anyway; they validate schema changes to the site's own tables.
     DRYRUN_SOURCE_TABLES=$(wp db query \
         "SELECT table_name FROM information_schema.tables \
          WHERE table_schema = DATABASE() \
-         AND LEFT(table_name, CHAR_LENGTH('${CURRENT_PREFIX}')) = '${CURRENT_PREFIX}'" \
+         AND LEFT(table_name, CHAR_LENGTH('${CURRENT_PREFIX}')) = '${CURRENT_PREFIX}' \
+         AND table_name != '${MIGRATIONS_TABLE}'" \
         --path="$WP_ROOT" --skip-column-names)
 
     set +e
