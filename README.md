@@ -225,6 +225,8 @@ Checks out the repo, connects over SSH (same as Atomic Deploy), uploads a fresh 
 
 Down only reverses schema shape, not data a migration deleted or transformed — restore from your own backup for that (see **Migrations run against live tables** under Atomic Deploy).
 
+If the batch fails partway through (one migration's Down section or tracking-row update fails after an earlier one in the same batch already succeeded), maintenance mode is deliberately left on rather than cleared automatically — the schema may be in a mix of reverted and un-reverted state, and bringing the site back online then would serve traffic against that inconsistency. The log names the exact query to check which migrations in the batch are still applied before deactivating it manually.
+
 **Inputs:**
 
 - `ssh-host`: SSH host. Required.

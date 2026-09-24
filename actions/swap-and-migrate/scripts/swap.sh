@@ -176,11 +176,22 @@ if [ "${#COMPONENTS[@]}" -eq 0 ]; then
 fi
 
 # Slug-safe only — TYPE/NAME feed into mv/rm -rf paths below.
+declare -A SEEN_COMPONENTS
 for COMPONENT in "${COMPONENTS[@]}"; do
     if [[ ! "$COMPONENT" =~ ^[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$ ]]; then
         echo "ERROR: Invalid component entry '$COMPONENT' — expected type:name using only letters, digits, hyphens, and underscores." >&2
         exit 1
     fi
+
+    # A duplicate entry breaks Step 4's second pass: its first iteration
+    # already consumed the staging directory moving it into place, so the
+    # second iteration's mv fails after the live directory has been moved
+    # aside — leaving that component missing entirely.
+    if [ -n "${SEEN_COMPONENTS[$COMPONENT]+x}" ]; then
+        echo "ERROR: Duplicate component entry '$COMPONENT' in components.txt." >&2
+        exit 1
+    fi
+    SEEN_COMPONENTS[$COMPONENT]=1
 done
 
 log "Validating component release paths"

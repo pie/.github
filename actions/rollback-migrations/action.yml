@@ -31,8 +31,24 @@ runs:
           exit 1
         fi
 
+        # The "Upload rollback script and migrations" step's scp/rsync calls
+        # below use a path derived from these inputs against a remote-shell-
+        # interpreting destination — %q-quoting (used for the ssh commands
+        # here) only protects the local shell, not scp/rsync's own
+        # remote-side parsing. Keeping to a safe character set closes that
+        # off regardless.
+        if [[ ! "$WP_ROOT" =~ ^/[A-Za-z0-9/_.-]*$ ]]; then
+          echo "Error: wp-root must contain only letters, digits, and /_.- characters." >&2
+          exit 1
+        fi
+
         if [ -n "$RELEASES_DIR_INPUT" ] && { [[ "$RELEASES_DIR_INPUT" != '/'* ]] || [ "$RELEASES_DIR_INPUT" = "/" ]; }; then
           echo "Error: releases-dir must be an absolute path starting with / and not the filesystem root itself (e.g. /home/piecode/site/public_html/releases)." >&2
+          exit 1
+        fi
+
+        if [ -n "$RELEASES_DIR_INPUT" ] && [[ ! "$RELEASES_DIR_INPUT" =~ ^/[A-Za-z0-9/_.-]*$ ]]; then
+          echo "Error: releases-dir must contain only letters, digits, and /_.- characters." >&2
           exit 1
         fi
 

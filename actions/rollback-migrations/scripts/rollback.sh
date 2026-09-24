@@ -177,12 +177,30 @@ else
     fi
 fi
 
+# Flips to false right before the first Down statement runs. A failure
+# after that point means the batch may be partially reverted — bringing the
+# site back online then would serve traffic against an inconsistent schema,
+# so maintenance mode stays on for manual inspection rather than clearing
+# automatically. Same reasoning as swap.sh's SAFE_TO_RECOVER.
+SAFE_TO_RECOVER=true
+
 restore_maintenance_mode() {
-    if [ "$MAINTENANCE_ALREADY_ACTIVE" = false ]; then
+    local EXIT_CODE=$?
+    if [ "$MAINTENANCE_ALREADY_ACTIVE" = true ]; then
+        exit $EXIT_CODE
+    fi
+
+    if [ $EXIT_CODE -eq 0 ] || [ "$SAFE_TO_RECOVER" = true ]; then
         log "Disabling maintenance mode"
         wp maintenance-mode deactivate --path="$WP_ROOT" \
             || log "WARN: Failed to deactivate maintenance mode — run manually: wp maintenance-mode deactivate --path=\"$WP_ROOT\""
+    else
+        log "ERROR: Rollback failed partway through batch '$BATCH' — site is in maintenance mode"
+        log "ERROR: Some migrations in this batch may have been reverted and others not — before deactivating maintenance mode, verify:"
+        log "ERROR:   wp db query \"SELECT * FROM \`$MIGRATIONS_TABLE\` WHERE batch = '$SAFE_BATCH' ORDER BY id DESC\" --path=\"$WP_ROOT\""
+        log "ERROR: Once verified safe: wp maintenance-mode deactivate --path=\"$WP_ROOT\""
     fi
+    exit $EXIT_CODE
 }
 trap restore_maintenance_mode EXIT
 
@@ -203,6 +221,7 @@ while IFS= read -r FILENAME; do
     fi
 
     log "Reverting $FILENAME"
+    SAFE_TO_RECOVER=false
     printf '%s\n' "$DOWN_SQL" | sed "s/__WP_PREFIX__/${TARGET_PREFIX}/g" | wp db query --path="$WP_ROOT"
 
     SAFE_FILENAME=$(printf '%s' "$FILENAME" | sed "s/'/''/g")

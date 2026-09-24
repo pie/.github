@@ -24,8 +24,23 @@ runs:
           exit 1
         fi
 
+        # scp/rsync (used elsewhere in this pipeline with paths derived from
+        # these inputs) invoke a remote shell to interpret their destination
+        # path — unlike the ssh commands here, which quote safely via %q,
+        # that remote-side parsing isn't protected by local quoting. Keeping
+        # to a safe character set closes that off regardless.
+        if [[ ! "$WP_ROOT" =~ ^/[A-Za-z0-9/_.-]*$ ]]; then
+          echo "Error: wp-root must contain only letters, digits, and /_.- characters." >&2
+          exit 1
+        fi
+
         if [ -n "$RELEASES_DIR_INPUT" ] && { [[ "$RELEASES_DIR_INPUT" != '/'* ]] || [ "$RELEASES_DIR_INPUT" = "/" ]; }; then
           echo "Error: releases-dir must be an absolute path starting with / and not the filesystem root itself (e.g. /home/piecode/site/public_html/releases)." >&2
+          exit 1
+        fi
+
+        if [ -n "$RELEASES_DIR_INPUT" ] && [[ ! "$RELEASES_DIR_INPUT" =~ ^/[A-Za-z0-9/_.-]*$ ]]; then
+          echo "Error: releases-dir must contain only letters, digits, and /_.- characters." >&2
           exit 1
         fi
 
