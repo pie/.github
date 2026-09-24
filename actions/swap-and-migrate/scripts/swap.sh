@@ -233,13 +233,20 @@ if [ "$HAS_MIGRATIONS" = true ]; then
     set +e
     DRYRUN_FAILED=false
 
-    # Clear any remnants from a previous failed attempt at this SHA, then clone structure only.
+    # One combined script instead of two wp-cli calls per table — the
+    # per-invocation PHP/wp-cli bootstrap, not the SQL itself, dominates
+    # cost on sites with many tables. Clears remnants from a previous failed
+    # attempt at this SHA, then clones structure only.
+    DRYRUN_CLONE_SQL=""
     while IFS= read -r TABLE; do
         [ -z "$TABLE" ] && continue
         DRYRUN_TABLE="${DRYRUN_PREFIX}${TABLE#$CURRENT_PREFIX}"
-        wp db query "DROP TABLE IF EXISTS \`$DRYRUN_TABLE\`" --path="$WP_ROOT" || true
-        wp db query "CREATE TABLE \`$DRYRUN_TABLE\` LIKE \`$TABLE\`" --path="$WP_ROOT" || DRYRUN_FAILED=true
+        DRYRUN_CLONE_SQL+="DROP TABLE IF EXISTS \`$DRYRUN_TABLE\`; CREATE TABLE \`$DRYRUN_TABLE\` LIKE \`$TABLE\`;"$'\n'
     done <<< "$DRYRUN_SOURCE_TABLES"
+
+    if [ -n "$DRYRUN_CLONE_SQL" ]; then
+        printf '%s' "$DRYRUN_CLONE_SQL" | wp db query --path="$WP_ROOT" || DRYRUN_FAILED=true
+    fi
 
     if [ "$DRYRUN_FAILED" = false ]; then
         for SQL_FILE in "${PENDING_FILES[@]}"; do
@@ -263,10 +270,15 @@ if [ "$HAS_MIGRATIONS" = true ]; then
          AND LEFT(table_name, CHAR_LENGTH('${DRYRUN_PREFIX}')) = '${DRYRUN_PREFIX}'" \
         --path="$WP_ROOT" --skip-column-names)
 
+    DRYRUN_CLEANUP_SQL=""
     while IFS= read -r DRYRUN_TABLE; do
         [ -z "$DRYRUN_TABLE" ] && continue
-        wp db query "DROP TABLE IF EXISTS \`$DRYRUN_TABLE\`" --path="$WP_ROOT" || true
+        DRYRUN_CLEANUP_SQL+="DROP TABLE IF EXISTS \`$DRYRUN_TABLE\`;"$'\n'
     done <<< "$DRYRUN_CLEANUP_TABLES"
+
+    if [ -n "$DRYRUN_CLEANUP_SQL" ]; then
+        printf '%s' "$DRYRUN_CLEANUP_SQL" | wp db query --path="$WP_ROOT" || true
+    fi
     set -e
 
     if [ "$DRYRUN_FAILED" = true ]; then
