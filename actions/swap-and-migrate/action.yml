@@ -30,7 +30,23 @@ runs:
       env:
         WP_ROOT: ${{ inputs.wp-root }}
         RELEASES_DIR_INPUT: ${{ inputs.releases-dir }}
+        GIT_SHA: ${{ inputs.git-sha }}
+        FULL_GIT_SHA: ${{ inputs.full-git-sha }}
       run: |
+        # git-sha/full-git-sha feed into MIGRATIONS_DIR, used unquoted-for-
+        # remote-shell in the scp destinations below — same risk as
+        # wp-root/releases-dir. Enforcing the documented hex format (rather
+        # than trying to quote for scp's own remote-side parsing) closes it.
+        if [[ ! "$GIT_SHA" =~ ^[0-9a-f]{8}$ ]]; then
+          echo "Error: git-sha must be exactly 8 lowercase hex characters." >&2
+          exit 1
+        fi
+
+        if [[ ! "$FULL_GIT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "Error: full-git-sha must be exactly 40 lowercase hex characters." >&2
+          exit 1
+        fi
+
         if [[ "$WP_ROOT" != '/'* ]] || [ "$WP_ROOT" = "/" ]; then
           echo "Error: wp-root must be an absolute path starting with / and not the filesystem root itself (e.g. /home/piecode/site/public_html)." >&2
           exit 1
@@ -46,6 +62,13 @@ runs:
           exit 1
         fi
 
+        # The character whitelist above still permits ".." — e.g. /var/../releases
+        # — which resolves outside wp-root entirely rather than being rejected.
+        if [[ "$WP_ROOT" == *".."* ]]; then
+          echo "Error: wp-root must not contain '..' path components." >&2
+          exit 1
+        fi
+
         # A relative override here ends up relative to whatever directory the
         # SSH login session lands in, not wp-root — and swap.sh's pruning step
         # runs rm -rf against whatever it finds there, unrelated first-level
@@ -58,6 +81,11 @@ runs:
 
         if [ -n "$RELEASES_DIR_INPUT" ] && [[ ! "$RELEASES_DIR_INPUT" =~ ^/[A-Za-z0-9/_.-]*$ ]]; then
           echo "Error: releases-dir must contain only letters, digits, and /_.- characters." >&2
+          exit 1
+        fi
+
+        if [ -n "$RELEASES_DIR_INPUT" ] && [[ "$RELEASES_DIR_INPUT" == *".."* ]]; then
+          echo "Error: releases-dir must not contain '..' path components." >&2
           exit 1
         fi
 

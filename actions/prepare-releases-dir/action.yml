@@ -34,6 +34,13 @@ runs:
           exit 1
         fi
 
+        # The character whitelist above still permits ".." — e.g. /var/../releases
+        # — which resolves outside wp-root entirely rather than being rejected.
+        if [[ "$WP_ROOT" == *".."* ]]; then
+          echo "Error: wp-root must not contain '..' path components." >&2
+          exit 1
+        fi
+
         if [ -n "$RELEASES_DIR_INPUT" ] && { [[ "$RELEASES_DIR_INPUT" != '/'* ]] || [ "$RELEASES_DIR_INPUT" = "/" ]; }; then
           echo "Error: releases-dir must be an absolute path starting with / and not the filesystem root itself (e.g. /home/piecode/site/public_html/releases)." >&2
           exit 1
@@ -41,6 +48,11 @@ runs:
 
         if [ -n "$RELEASES_DIR_INPUT" ] && [[ ! "$RELEASES_DIR_INPUT" =~ ^/[A-Za-z0-9/_.-]*$ ]]; then
           echo "Error: releases-dir must contain only letters, digits, and /_.- characters." >&2
+          exit 1
+        fi
+
+        if [ -n "$RELEASES_DIR_INPUT" ] && [[ "$RELEASES_DIR_INPUT" == *".."* ]]; then
+          echo "Error: releases-dir must not contain '..' path components." >&2
           exit 1
         fi
 

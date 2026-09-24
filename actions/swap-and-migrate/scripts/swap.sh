@@ -92,6 +92,15 @@ if [[ "$WP_ROOT" != '/'* ]] || [ "$WP_ROOT" = "/" ]; then
     exit 1
 fi
 
+# ".." resolves outside wp-root entirely (e.g. /var/../releases) rather than
+# being rejected by the checks above — refuse it here too, since Step 4
+# runs mkdir/chmod/writes an .htaccess directly against whatever this
+# resolves to, not just via the action's own input validation.
+if [[ "$WP_ROOT" == *".."* ]] || [[ "$RELEASES_DIR" == *".."* ]]; then
+    echo "ERROR: WP_ROOT/releases-dir must not contain '..' path components." >&2
+    exit 1
+fi
+
 # Step 4 later runs mkdir/chmod/writes an .htaccess directly against
 # RELEASES_DIR — refuse the exact-"/" case here too, not just via the
 # action's own input validation, since this script also runs standalone.

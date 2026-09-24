@@ -192,8 +192,14 @@ restore_maintenance_mode() {
 
     if [ $EXIT_CODE -eq 0 ] || [ "$SAFE_TO_RECOVER" = true ]; then
         log "Disabling maintenance mode"
-        wp maintenance-mode deactivate --path="$WP_ROOT" \
-            || log "WARN: Failed to deactivate maintenance mode — run manually: wp maintenance-mode deactivate --path=\"$WP_ROOT\""
+        if ! wp maintenance-mode deactivate --path="$WP_ROOT"; then
+            log "ERROR: Failed to deactivate maintenance mode — the site may still be offline. Run manually: wp maintenance-mode deactivate --path=\"$WP_ROOT\""
+            # Force a failing result so the caller can't miss this — without
+            # this, a rollback that itself succeeded (EXIT_CODE 0) would
+            # still report success while the site stays down. Preserve any
+            # earlier non-zero code rather than overwrite it.
+            [ $EXIT_CODE -eq 0 ] && EXIT_CODE=1
+        fi
     else
         log "ERROR: Rollback failed partway through batch '$BATCH' — site is in maintenance mode"
         log "ERROR: Some migrations in this batch may have been reverted and others not — before deactivating maintenance mode, verify:"
