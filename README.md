@@ -47,6 +47,20 @@ Failures are handled based on how far the deploy got:
 
 No email notification is sent — GitHub's own workflow-failure notifications (to whoever triggered the run, per their notification settings) cover that; check the Actions log for which case applies and what to do next.
 
+**Concurrency:**
+
+`atomic_deploy` and **Rollback Migrations** share a `concurrency` group keyed on `ssh-host`+`wp-root` — queued, never cancelled, so a rollback and a deploy to the same site never touch the live tables or migrations tracking table at the same time.
+
+That alone doesn't cover the rsync jobs, which upload independently of that lock. Two overlapping deploys to the same site could otherwise race: one's release-pruning step (Step 5 above) could delete the other's freshly-uploaded release directory before its own `atomic_deploy` gets to use it — the second deploy fails cleanly (its release directory goes missing), but confusingly, for a deploy that actually uploaded fine. Close this by adding a workflow-level `concurrency` block to your own calling workflow, so the whole run — rsync jobs included — queues behind any other run of it:
+
+```yaml
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+```
+
+This doesn't need to match the group key above — that pair already handles deploy-vs-rollback DB safety independently of this.
+
 **Migrations run against live tables:**
 
 Earlier versions of this workflow cloned every table to a new prefix, migrated the copy, then switched `wp-config.php` over — giving an instant fallback if something went wrong, at the cost of a lot of moving parts (full DB export, foreign key/trigger reconstruction, prefix bookkeeping) for a safety net that MySQL's non-transactional DDL couldn't fully honour anyway. Mainstream migration tools (Laravel, Rails, Django) don't clone either — they migrate live tables directly, for the same reason. This workflow now does the same:
