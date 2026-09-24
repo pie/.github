@@ -14,6 +14,8 @@ set -euo pipefail
 #   GIT_SHA       Short (8-char) SHA — release directory name only
 #   FULL_GIT_SHA  Full (40-char) SHA — migration batch grouping (short SHA can collide)
 #   REPO_NAME     GitHub repository name — used to derive the migrations table name
+#   RUN_ID        Workflow run ID — makes the dry run's scratch-table prefix
+#                 unique to this run, not just this SHA (short SHA can collide)
 #
 # Components are read from components.txt in the same directory, written by
 # the action before this script runs. One "type:name" entry per line.
@@ -27,6 +29,7 @@ MIGRATE_SCRIPT="$SCRIPT_DIR/migrate.sh"
 QUERIES_DIR="$SCRIPT_DIR/queries"
 HAS_MIGRATIONS=false
 MAINTENANCE_ACTIVE=false
+MAINTENANCE_ALREADY_ACTIVE=false
 SAFE_TO_RECOVER=true
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
@@ -56,8 +59,13 @@ cleanup() {
     [ $EXIT_CODE -eq 0 ] && return
     if [ "$MAINTENANCE_ACTIVE" = true ]; then
         if [ "$SAFE_TO_RECOVER" = true ]; then
-            log "Deploy failed before live changes — deactivating maintenance mode"
-            wp maintenance-mode deactivate --path="$WP_ROOT" || true
+            if [ "$MAINTENANCE_ALREADY_ACTIVE" = true ]; then
+                log "ERROR: Deploy failed before live changes, but maintenance mode predates this run — leaving it enabled rather than clearing a state it didn't set"
+                log "ERROR: An earlier deploy may still need manual recovery. Once verified safe: wp maintenance-mode deactivate --path=\"$WP_ROOT\""
+            else
+                log "Deploy failed before live changes — deactivating maintenance mode"
+                wp maintenance-mode deactivate --path="$WP_ROOT" || true
+            fi
             exit 1
         else
             log "ERROR: Deploy failed after live changes began — site is in maintenance mode"
@@ -89,6 +97,22 @@ fi
 # action's own input validation, since this script also runs standalone.
 if [ "$RELEASES_DIR" = "/" ]; then
     echo "ERROR: releases-dir resolved to the filesystem root — refusing to touch it." >&2
+    exit 1
+fi
+
+# Trailing-slash-normalized: releases-dir == wp-root would deny/chmod the
+# entire WordPress root, not just a releases subdirectory.
+if [ "${RELEASES_DIR%/}" = "${WP_ROOT%/}" ]; then
+    echo "ERROR: releases-dir must not be the same path as WP_ROOT." >&2
+    exit 1
+fi
+
+# Belt and braces: Step 4's .htaccess/chmod only ever target RELEASES_DIR
+# directly — requiring its final path segment to actually be "releases"
+# rules out WP_ROOT, "/", or any unrelated directory, however it was
+# misconfigured, without needing to know their relationship to each other.
+if [ "$(basename "${RELEASES_DIR%/}")" != "releases" ]; then
+    echo "ERROR: releases-dir must be a directory named 'releases' (e.g. /home/piecode/site/public_html/releases)." >&2
     exit 1
 fi
 
@@ -213,17 +237,26 @@ fi
 
 if [ "$HAS_MIGRATIONS" = true ]; then
 
-    log "Enabling maintenance mode"
-    # wp-cli errors if already active (e.g. left on by a previous failed
-    # deploy) — that's fine to continue past, but verify against the actual
-    # .maintenance file rather than trusting the exit code, since a genuine
-    # permission/CLI failure would otherwise look the same and let live
-    # migrations run while the site is still serving traffic.
-    wp maintenance-mode activate --path="$WP_ROOT" || true
+    # Distinct from MAINTENANCE_ACTIVE below: this tracks whether maintenance
+    # mode predates this run (e.g. left on by an earlier failed deploy still
+    # awaiting manual recovery) so cleanup/Step 5 never turn off something
+    # they didn't turn on — same pattern as rollback.sh.
+    if [ -f "$WP_ROOT/.maintenance" ]; then
+        MAINTENANCE_ALREADY_ACTIVE=true
+        log "Maintenance mode already active — leaving it as-is"
+    else
+        log "Enabling maintenance mode"
+        # wp-cli errors if already active — tolerate that, but verify against
+        # the actual .maintenance file rather than trusting the exit code,
+        # since a genuine permission/CLI failure would otherwise look the
+        # same and let live migrations run while the site is still serving
+        # traffic.
+        wp maintenance-mode activate --path="$WP_ROOT" || true
 
-    if [ ! -f "$WP_ROOT/.maintenance" ]; then
-        echo "ERROR: Could not confirm maintenance mode is active (no .maintenance file at $WP_ROOT after activation attempt) — refusing to run live migrations while the site may still be serving traffic." >&2
-        exit 1
+        if [ ! -f "$WP_ROOT/.maintenance" ]; then
+            echo "ERROR: Could not confirm maintenance mode is active (no .maintenance file at $WP_ROOT after activation attempt) — refusing to run live migrations while the site may still be serving traffic." >&2
+            exit 1
+        fi
     fi
 
     MAINTENANCE_ACTIVE=true
@@ -232,7 +265,14 @@ if [ "$HAS_MIGRATIONS" = true ]; then
     # (no rows) under a throwaway prefix before touching anything live.
     log "Dry run: validating ${#PENDING_FILES[@]} pending migration(s) against a structure-only clone"
 
-    DRYRUN_PREFIX="dryrun_${SHORT_SHA}_"
+    # Cleanup below drops every table matching this prefix, not just ones
+    # this run created — SHORT_SHA alone can collide (same reason
+    # FULL_GIT_SHA exists for batch grouping), so RUN_ID is included too,
+    # making an unrelated table ever matching this exact prefix implausible.
+    # RUN_ATTEMPT is deliberately left out: retrying a failed attempt should
+    # reuse the same prefix, since the clone step below already clears
+    # remnants from a previous failed attempt at it.
+    DRYRUN_PREFIX="dryrun_${SHORT_SHA}_${RUN_ID}_"
     DRYRUN_SOURCE_TABLES=$(wp db query \
         "SELECT table_name FROM information_schema.tables \
          WHERE table_schema = DATABASE() \
@@ -321,9 +361,10 @@ mkdir -p "$RELEASES_DIR"
 # Protects releases/ from being served over HTTP — best-effort only; see
 # README Requirements for why (.htaccess/AllowOverride, permission model on
 # shared hosting) and the active check that actually confirms it worked.
-if [ ! -f "$RELEASES_DIR/.htaccess" ] || ! grep -qxF 'Require all denied' "$RELEASES_DIR/.htaccess"; then
-    printf 'Require all denied\n' >> "$RELEASES_DIR/.htaccess"
-fi
+# Overwritten, not appended: this file has exactly one job, and Apache
+# combines sibling Require directives as an OR, so appending our deny rule
+# next to a pre-existing "Require all granted" wouldn't actually deny anything.
+printf 'Require all denied\n' > "$RELEASES_DIR/.htaccess"
 chmod 700 "$RELEASES_DIR" || true
 
 # Pass 1: stage (rsync) every component before changing any live path. No
@@ -376,11 +417,16 @@ done
 # ==============================================================================
 
 if [ "$MAINTENANCE_ACTIVE" = true ]; then
-    log "Disabling maintenance mode"
-    if ! wp maintenance-mode deactivate --path="$WP_ROOT"; then
-        log "ERROR: Failed to deactivate maintenance mode — run manually:"
-        log "ERROR:   wp maintenance-mode deactivate --path=\"$WP_ROOT\""
-        exit 2
+    if [ "$MAINTENANCE_ALREADY_ACTIVE" = true ]; then
+        log "This deploy succeeded, but maintenance mode predates this run — leaving it enabled rather than clearing a state it didn't set"
+        log "An earlier deploy may still need manual recovery. Once verified safe: wp maintenance-mode deactivate --path=\"$WP_ROOT\""
+    else
+        log "Disabling maintenance mode"
+        if ! wp maintenance-mode deactivate --path="$WP_ROOT"; then
+            log "ERROR: Failed to deactivate maintenance mode — run manually:"
+            log "ERROR:   wp maintenance-mode deactivate --path=\"$WP_ROOT\""
+            exit 2
+        fi
     fi
     MAINTENANCE_ACTIVE=false
 fi

@@ -42,7 +42,7 @@ If `site-url` is set, the `atomic_deploy` job then runs one more check after `sw
 
 Failures are handled based on how far the deploy got:
 
-- **Before migrations start** (dry run failed, or none were pending) — maintenance mode is deactivated automatically and the site recovers on the previous version.
+- **Before migrations start** (dry run failed) — maintenance mode is deactivated automatically and the site recovers on the previous version, *unless* it was already active before this run started (e.g. left on by an earlier failed deploy still awaiting manual recovery) — in that case it's left as-is rather than clearing a state this run didn't set, and the log says so.
 - **After migrations start** — maintenance mode stays on; there is no clone or backup to recover from automatically. Manual verification instructions are printed in the run's log output.
 
 No email notification is sent — GitHub's own workflow-failure notifications (to whoever triggered the run, per their notification settings) cover that; check the Actions log for which case applies and what to do next.
@@ -193,8 +193,8 @@ WP_ROOT=/home/piecode/site/public_html
 RELEASES=/home/piecode/site/public_html/releases
 PRIOR=$(ls -dt "$RELEASES"/*/  | sed -n '2p')
 
-rsync -a --delete "${PRIOR}my-plugin/" "$WP_ROOT/wp-content/plugins/my-plugin/"
-rsync -a --delete "${PRIOR}my-theme/"  "$WP_ROOT/wp-content/themes/my-theme/"
+rsync -a --delete "${PRIOR}plugins/my-plugin/" "$WP_ROOT/wp-content/plugins/my-plugin/"
+rsync -a --delete "${PRIOR}themes/my-theme/"  "$WP_ROOT/wp-content/themes/my-theme/"
 
 wp cache flush --path="$WP_ROOT"
 ```

@@ -29,6 +29,22 @@ runs:
           exit 1
         fi
 
+        # Trailing-slash-normalized: releases-dir == wp-root would deny/chmod
+        # the entire WordPress root, not just a releases subdirectory.
+        if [ -n "$RELEASES_DIR_INPUT" ] && [ "${RELEASES_DIR_INPUT%/}" = "${WP_ROOT%/}" ]; then
+          echo "Error: releases-dir must not be the same path as wp-root." >&2
+          exit 1
+        fi
+
+        # Belt and braces: whatever releases-dir resolves to, the .htaccess/
+        # chmod below only ever target it directly — requiring its final path
+        # segment to actually be "releases" rules out wp-root, "/", or any
+        # unrelated directory ending up there, however it was misconfigured.
+        if [ -n "$RELEASES_DIR_INPUT" ] && [ "$(basename "${RELEASES_DIR_INPUT%/}")" != "releases" ]; then
+          echo "Error: releases-dir must be a directory named 'releases' (e.g. /home/piecode/site/public_html/releases)." >&2
+          exit 1
+        fi
+
     - name: Create and protect releases directory
       shell: bash
       env:
@@ -51,5 +67,8 @@ runs:
         # runs after this deploy's own dry run and live migrations, which is
         # too late if either of those fails first.
         ssh server "mkdir -p $RELEASES_DIR_Q"
-        ssh server "[ -f $RELEASES_DIR_Q/.htaccess ] && grep -qxF 'Require all denied' $RELEASES_DIR_Q/.htaccess || printf 'Require all denied\n' >> $RELEASES_DIR_Q/.htaccess"
+        # Overwritten, not appended: this file has exactly one job, and
+        # Apache combines sibling Require directives as an OR, so appending
+        # next to a pre-existing "Require all granted" wouldn't deny anything.
+        ssh server "printf 'Require all denied\n' > $RELEASES_DIR_Q/.htaccess"
         ssh server "chmod 700 $RELEASES_DIR_Q"

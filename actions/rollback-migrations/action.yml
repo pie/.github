@@ -36,6 +36,22 @@ runs:
           exit 1
         fi
 
+        # Trailing-slash-normalized: releases-dir == wp-root would deny/chmod
+        # the entire WordPress root, not just a releases subdirectory.
+        if [ -n "$RELEASES_DIR_INPUT" ] && [ "${RELEASES_DIR_INPUT%/}" = "${WP_ROOT%/}" ]; then
+          echo "Error: releases-dir must not be the same path as wp-root." >&2
+          exit 1
+        fi
+
+        # Belt and braces, and kept consistent with the other actions that
+        # accept releases-dir: requiring its final path segment to actually
+        # be "releases" rules out wp-root, "/", or any unrelated directory,
+        # however it was misconfigured.
+        if [ -n "$RELEASES_DIR_INPUT" ] && [ "$(basename "${RELEASES_DIR_INPUT%/}")" != "releases" ]; then
+          echo "Error: releases-dir must be a directory named 'releases' (e.g. /home/piecode/site/public_html/releases)." >&2
+          exit 1
+        fi
+
     - name: Upload rollback script and migrations
       shell: bash
       env:

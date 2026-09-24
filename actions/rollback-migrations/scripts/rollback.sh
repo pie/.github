@@ -206,9 +206,18 @@ while IFS= read -r FILENAME; do
     printf '%s\n' "$DOWN_SQL" | sed "s/__WP_PREFIX__/${TARGET_PREFIX}/g" | wp db query --path="$WP_ROOT"
 
     SAFE_FILENAME=$(printf '%s' "$FILENAME" | sed "s/'/''/g")
-    wp db query \
+    # Same reasoning as migrate.sh's INSERT: if removing the tracking row
+    # fails here, the Down SQL already ran but the row still says "applied".
+    # Name the exact fix instead of letting this propagate unexplained.
+    if ! wp db query \
         "DELETE FROM \`$MIGRATIONS_TABLE\` WHERE filename = '$SAFE_FILENAME'" \
-        --path="$WP_ROOT"
+        --path="$WP_ROOT"; then
+        echo "ERROR: $FILENAME's Down section succeeded, but removing its tracking row from $MIGRATIONS_TABLE failed." >&2
+        echo "ERROR: It's still recorded as applied even though it was just reverted. Before retrying, either:" >&2
+        echo "ERROR:   1. Manually run: DELETE FROM \`$MIGRATIONS_TABLE\` WHERE filename = '$SAFE_FILENAME';" >&2
+        echo "ERROR:   2. Or confirm $FILENAME's Down section is safe to run twice before retrying this rollback." >&2
+        exit 1
+    fi
 
     log "  Reverted: $FILENAME"
 done <<< "$FILENAMES"

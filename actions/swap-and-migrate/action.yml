@@ -46,6 +46,22 @@ runs:
           exit 1
         fi
 
+        # Trailing-slash-normalized: releases-dir == wp-root would deny/chmod
+        # the entire WordPress root, not just a releases subdirectory.
+        if [ -n "$RELEASES_DIR_INPUT" ] && [ "${RELEASES_DIR_INPUT%/}" = "${WP_ROOT%/}" ]; then
+          echo "Error: releases-dir must not be the same path as wp-root." >&2
+          exit 1
+        fi
+
+        # Belt and braces: whatever releases-dir resolves to, swap.sh's
+        # .htaccess/chmod only ever target it directly — requiring its final
+        # path segment to actually be "releases" rules out wp-root, "/", or
+        # any unrelated directory ending up there, however it was misconfigured.
+        if [ -n "$RELEASES_DIR_INPUT" ] && [ "$(basename "${RELEASES_DIR_INPUT%/}")" != "releases" ]; then
+          echo "Error: releases-dir must be a directory named 'releases' (e.g. /home/piecode/site/public_html/releases)." >&2
+          exit 1
+        fi
+
     - name: Upload swap scripts to server
       shell: bash
       env:
@@ -87,4 +103,7 @@ runs:
         RELEASES_DIR_Q=$(printf '%q' "$RELEASES_DIR")
         SWAP_SCRIPT="$RELEASES_DIR/$GIT_SHA/migrations/swap.sh"
         SWAP_SCRIPT_Q=$(printf '%q' "$SWAP_SCRIPT")
-        ssh server "env WP_ROOT=$WP_ROOT_Q GIT_SHA=$GIT_SHA_Q FULL_GIT_SHA=$FULL_GIT_SHA_Q REPO_NAME=$REPO_NAME_Q RELEASES_DIR=$RELEASES_DIR_Q bash $SWAP_SCRIPT_Q"
+        # RUN_ID makes the dry run's scratch-table prefix unique to this
+        # workflow run, not just this SHA — see swap.sh for why.
+        RUN_ID_Q=$(printf '%q' "$GITHUB_RUN_ID")
+        ssh server "env WP_ROOT=$WP_ROOT_Q GIT_SHA=$GIT_SHA_Q FULL_GIT_SHA=$FULL_GIT_SHA_Q REPO_NAME=$REPO_NAME_Q RELEASES_DIR=$RELEASES_DIR_Q RUN_ID=$RUN_ID_Q bash $SWAP_SCRIPT_Q"
