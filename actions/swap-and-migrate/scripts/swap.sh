@@ -6,26 +6,17 @@ set -euo pipefail
 #
 # Uploaded to the server by the swap-and-migrate action on each deploy.
 # Do not copy or edit this file per-project — changes belong in the action.
-#
-# Migrations run directly against the live tables, in maintenance mode, with
-# no table clone, prefix switch, or automated backup — a dry run against a
-# disposable structure-only clone is the only pre-flight check before that
-# happens. If a migration fails partway through, there is nothing to revert
-# to automatically; the site stays in maintenance mode for manual recovery.
-# Take a full site backup before deploying migrations, and confirm the
-# patches against a staging copy first.
+# See the README for the full design rationale (no table clone/backup, the
+# dry run, releases/ protection, etc.) — comments below are just flow notes.
 #
 # Injected by the action:
-#   WP_ROOT       Absolute path to the WordPress root (e.g. /home/piecode/site/public_html)
-#   GIT_SHA       Short (8-character) git commit SHA — used for the release directory name only
-#   FULL_GIT_SHA  Full (40-character) git commit SHA — used to group migrations by deploy in
-#                 the tracking table. The short SHA isn't safe for this: as a repository grows,
-#                 two different commits can share the same short-SHA prefix, which would make a
-#                 rollback revert migrations from two unrelated deploys as if they were one batch.
-#   REPO_NAME     GitHub repository name (used to derive migrations table name)
+#   WP_ROOT       Absolute path to the WordPress root
+#   GIT_SHA       Short (8-char) SHA — release directory name only
+#   FULL_GIT_SHA  Full (40-char) SHA — migration batch grouping (short SHA can collide)
+#   REPO_NAME     GitHub repository name — used to derive the migrations table name
 #
-# Components are read from components.txt in the same directory, written by the
-# action before this script runs. Format: one "type:name" entry per line.
+# Components are read from components.txt in the same directory, written by
+# the action before this script runs. One "type:name" entry per line.
 # ==============================================================================
 
 SHORT_SHA="${GIT_SHA:0:8}"
@@ -40,11 +31,8 @@ SAFE_TO_RECOVER=true
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 
-# Extracts the "Up" or "Down" section from a migration file — same
-# implementation as migrate.sh/rollback.sh. Only "up" is used here (for the
-# dry run below), but kept as both cases for consistency with those two. A
-# file with no "-- +migrate Up" marker at all is treated as one plain
-# Up-only migration — prints the whole file for "up", nothing for "down".
+# Extracts the "up" or "down" section from a migration file (same as
+# migrate.sh/rollback.sh). No markers at all = treated as up-only.
 extract_section() {
     local file="$1" section="$2"
     if [ "$section" = "down" ]; then
@@ -61,14 +49,8 @@ extract_section() {
     fi
 }
 
-# Fires on any non-zero exit via set -euo pipefail.
-#
-# If maintenance mode was never activated, nothing to do.
-# If activated and migrations haven't started yet (dry run only, or none
-# pending), it is safe to deactivate — the live site is unmodified. Exit 1.
-# If activated and migrations have started (SAFE_TO_RECOVER=false), the site
-# must stay in maintenance mode until manually verified — there is no clone
-# or automated backup to recover from. Exit 2.
+# Exit 1 = safe, maintenance mode deactivated. Exit 2 = live changes began,
+# stays in maintenance mode for manual recovery. See README.
 cleanup() {
     local EXIT_CODE=$?
     [ $EXIT_CODE -eq 0 ] && return
@@ -112,18 +94,13 @@ wp db check --path="$WP_ROOT"
 
 CURRENT_PREFIX=$(wp config get table_prefix --path="$WP_ROOT")
 
-# CURRENT_PREFIX is interpolated into SQL string literals and identifiers
-# below. WordPress's own installer already restricts table_prefix to this
-# character set — enforcing it here means a misconfigured wp-config.php fails
-# cleanly instead of corrupting a query or behaving like injected SQL.
+# Guard against SQL injection via a malformed table_prefix (interpolated below).
 if [[ ! "$CURRENT_PREFIX" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
     echo "ERROR: table_prefix '$CURRENT_PREFIX' contains unexpected characters — refusing to use it in SQL. Expected only letters, digits, and underscores, not starting with a digit." >&2
     exit 1
 fi
 
-# REPO_SLUG is embedded into the migrations tracking table name alongside
-# CURRENT_PREFIX. MySQL caps identifiers at 64 characters, so cap REPO_SLUG
-# to whatever's left, instead of a flat cut that ignores the prefix entirely.
+# Cap REPO_SLUG so prefix + slug + "_migrations" stays under MySQL's 64-char limit.
 MIGRATIONS_SUFFIX="_migrations"
 REPO_SLUG_RAW="$(printf '%s' "$REPO_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g')"
 MAX_SLUG_LEN=$(( 64 - ${#CURRENT_PREFIX} - ${#MIGRATIONS_SUFFIX} ))
@@ -133,14 +110,8 @@ if [ "$MAX_SLUG_LEN" -lt 1 ]; then
 fi
 
 if [ "${#REPO_SLUG_RAW}" -gt "$MAX_SLUG_LEN" ]; then
-    # A flat cut here risks two different repo names truncating to the same
-    # prefix (e.g. "client-a-main-site" and "client-a-staging-site"), which
-    # would collide on one shared tracking table. Reserve room for a short,
-    # deterministic hash of the full name so a truncated slug still stays
-    # unique even when its visible prefix doesn't. Left alone (the common
-    # case — most repo names never hit this branch), REPO_SLUG is unchanged
-    # from before, so already-deployed sites keep resolving to the same
-    # tracking table they always have.
+    # Append a hash when truncating so two long, similarly-prefixed repo names
+    # can't collide on the same tracking table. Untruncated case is unchanged.
     REPO_HASH="$(printf '%s' "$REPO_NAME" | md5sum | cut -c1-8)"
     TRUNCATE_LEN=$(( MAX_SLUG_LEN - 1 - ${#REPO_HASH} ))
     if [ "$TRUNCATE_LEN" -lt 1 ]; then
@@ -172,10 +143,7 @@ if [ "${#COMPONENTS[@]}" -eq 0 ]; then
     exit 1
 fi
 
-# TYPE and NAME are extracted from each entry below and built into paths that
-# are later passed to mv/rm -rf. Restricting to slug-safe characters up front
-# rules out a stray '/' or '..' steering those destructive calls outside
-# wp-content/, however the entry ended up malformed.
+# Slug-safe only — TYPE/NAME feed into mv/rm -rf paths below.
 for COMPONENT in "${COMPONENTS[@]}"; do
     if [[ ! "$COMPONENT" =~ ^[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$ ]]; then
         echo "ERROR: Invalid component entry '$COMPONENT' — expected type:name using only letters, digits, hyphens, and underscores." >&2
@@ -200,15 +168,8 @@ done
 PENDING_FILES=()
 
 if [ -d "$QUERIES_DIR" ]; then
-    # Unlike migrate.sh/rollback.sh, nothing has created the tracking table
-    # by this point — on a genuinely first-ever deploy it may not exist yet,
-    # which is a real, expected case here. But that's different from "the
-    # table exists and this query failed for some other reason" (DB
-    # connectivity, permissions) — check for existence explicitly instead of
-    # swallowing every failure the same way, so only the legitimate case is
-    # treated as "nothing applied yet" and a real failure still propagates
-    # rather than silently making every already-applied migration look
-    # pending again.
+    # Table may genuinely not exist yet (first-ever deploy) — check explicitly
+    # rather than swallowing errors, so a real failure still propagates.
     MIGRATIONS_TABLE_EXISTS=$(wp db query \
         "SELECT COUNT(*) FROM information_schema.TABLES \
          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '$MIGRATIONS_TABLE'" \
@@ -244,17 +205,11 @@ fi
 if [ "$HAS_MIGRATIONS" = true ]; then
 
     log "Enabling maintenance mode"
-    # wp-cli errors rather than no-ops if maintenance mode is already active
-    # (e.g. left on by a previous deploy that failed after enabling it, since
-    # nothing besides swap.sh's own end-of-run step turns it back off) — that
-    # specific case is fine to continue past. But a bare "tolerate the
-    # failure and assume it means already-active" can't tell that apart from
-    # a permission or CLI failure that means maintenance mode never actually
-    # turned on — in which case continuing to the live migration below would
-    # run DDL while the site is still serving traffic, exactly what
-    # maintenance mode exists to prevent. Verify the actual outcome directly
-    # (the .maintenance file is the ground truth WordPress itself checks)
-    # rather than trusting what the exit code implies.
+    # wp-cli errors if already active (e.g. left on by a previous failed
+    # deploy) — that's fine to continue past, but verify against the actual
+    # .maintenance file rather than trusting the exit code, since a genuine
+    # permission/CLI failure would otherwise look the same and let live
+    # migrations run while the site is still serving traffic.
     wp maintenance-mode activate --path="$WP_ROOT" || true
 
     if [ ! -f "$WP_ROOT/.maintenance" ]; then
@@ -264,17 +219,8 @@ if [ "$HAS_MIGRATIONS" = true ]; then
 
     MAINTENANCE_ACTIVE=true
 
-    # ------------------------------------------------------------------
-    # Dry run: validate pending migration patches before touching live
-    # tables. Patches are applied to structure-only clones of the live
-    # tables (columns/indexes, no rows) under a throwaway prefix, then
-    # those clones are dropped immediately. This is the only pre-flight
-    # check before migrations run directly against production — there is
-    # no table clone or backup to fall back to if a patch turns out to be
-    # broken. A data-dependent patch (e.g. an UPDATE matching on row
-    # content) can still pass here and fail for other reasons later,
-    # since no rows exist yet to match against.
-    # ------------------------------------------------------------------
+    # Dry run: apply pending migrations' Up sections to structure-only clones
+    # (no rows) under a throwaway prefix before touching anything live.
     log "Dry run: validating ${#PENDING_FILES[@]} pending migration(s) against a structure-only clone"
 
     DRYRUN_PREFIX="dryrun_${SHORT_SHA}_"
@@ -307,12 +253,20 @@ if [ "$HAS_MIGRATIONS" = true ]; then
         done
     fi
 
+    # Discover current dryrun_*-prefixed tables fresh, rather than reusing the
+    # pre-migration snapshot — a migration that creates/renames a table would
+    # otherwise leave an orphan the old snapshot never knew about.
     log "Dry run: cleaning up scratch tables"
-    while IFS= read -r TABLE; do
-        [ -z "$TABLE" ] && continue
-        DRYRUN_TABLE="${DRYRUN_PREFIX}${TABLE#$CURRENT_PREFIX}"
+    DRYRUN_CLEANUP_TABLES=$(wp db query \
+        "SELECT table_name FROM information_schema.tables \
+         WHERE table_schema = DATABASE() \
+         AND LEFT(table_name, CHAR_LENGTH('${DRYRUN_PREFIX}')) = '${DRYRUN_PREFIX}'" \
+        --path="$WP_ROOT" --skip-column-names)
+
+    while IFS= read -r DRYRUN_TABLE; do
+        [ -z "$DRYRUN_TABLE" ] && continue
         wp db query "DROP TABLE IF EXISTS \`$DRYRUN_TABLE\`" --path="$WP_ROOT" || true
-    done <<< "$DRYRUN_SOURCE_TABLES"
+    done <<< "$DRYRUN_CLEANUP_TABLES"
     set -e
 
     if [ "$DRYRUN_FAILED" = true ]; then
@@ -322,13 +276,7 @@ if [ "$HAS_MIGRATIONS" = true ]; then
 
     log "Dry run passed"
 
-    # ------------------------------------------------------------------
-    # Point of no return — migrations are about to run against the live
-    # tables directly, with no clone or backup to fall back to. Any
-    # failure from here requires manual verification before the site can
-    # safely come back up. The cleanup trap exits 2 if MAINTENANCE_ACTIVE
-    # is true and SAFE_TO_RECOVER is false.
-    # ------------------------------------------------------------------
+    # Point of no return — live tables are about to change, no clone/backup to fall back to.
     SAFE_TO_RECOVER=false
 
     log "Applying migrations against live tables (prefix '$CURRENT_PREFIX')"
@@ -342,30 +290,25 @@ if [ "$HAS_MIGRATIONS" = true ]; then
 fi
 
 # ==============================================================================
-# Step 4: Component swap
-#
-# Each component is rsynced to a hidden staging directory, then atomically
-# renamed into place. WordPress ignores directories starting with '.', so
-# the staging copy is never served during the transfer.
+# Step 4: Component swap — stage every component, then swap all into place
 # ==============================================================================
 
 log "Deploying components for release $GIT_SHA"
 
 mkdir -p "$RELEASES_DIR"
 
-# Best-effort protection against RELEASES_DIR being served over HTTP — it
-# lives inside wp-root because some hosts won't grant write access above the
-# web root (see README Requirements). Neither of these is a guarantee on its
-# own: .htaccess only works on Apache with AllowOverride enabled, and the
-# permission tightening only blocks the web server where it runs as a
-# different OS user than this deploy user — the same user on most per-site
-# shared hosting. The active check at the end of the atomic-deploy workflow
-# is what actually confirms this worked, regardless of which of these apply.
+# Protects releases/ from being served over HTTP — best-effort only; see
+# README Requirements for why (.htaccess/AllowOverride, permission model on
+# shared hosting) and the active check that actually confirms it worked.
 if [ ! -f "$RELEASES_DIR/.htaccess" ]; then
     printf 'Require all denied\n' > "$RELEASES_DIR/.htaccess"
 fi
 chmod 700 "$RELEASES_DIR" || true
 
+# Pass 1: stage (rsync) every component before changing any live path. No
+# maintenance mode here (zero-downtime by design when nothing's pending) —
+# this narrows, not eliminates, the window where a partial failure could
+# leave a mix of old/new components live.
 for COMPONENT in "${COMPONENTS[@]}"; do
     TYPE="${COMPONENT%%:*}"
     NAME="${COMPONENT##*:}"
@@ -381,6 +324,20 @@ for COMPONENT in "${COMPONENTS[@]}"; do
     mkdir -p "$STAGING_PATH"
     rsync -a --delete "$RELEASE_PATH/" "$STAGING_PATH/"
 
+    log "  Staged $TYPE/$NAME"
+done
+
+log "All components staged — swapping into place"
+
+# Pass 2: only reached once every rsync above succeeded.
+for COMPONENT in "${COMPONENTS[@]}"; do
+    TYPE="${COMPONENT%%:*}"
+    NAME="${COMPONENT##*:}"
+    LIVE_PATH="$WP_ROOT/wp-content/$TYPE/$NAME"
+    RELEASE_PATH="$NEW_RELEASE_DIR/$NAME"
+    STAGING_PATH="${LIVE_PATH}.deploying"
+    OLD_PATH="${LIVE_PATH}.previous"
+
     # Atomic rename: live → .previous, staging → live
     if [ -e "$LIVE_PATH" ] || [ -L "$LIVE_PATH" ]; then
         mv "$LIVE_PATH" "$OLD_PATH"
@@ -395,8 +352,6 @@ done
 # Step 5: Disable maintenance mode
 #
 # Done before pruning so the site comes back up even if cleanup fails.
-# MAINTENANCE_ACTIVE is set to false regardless — the cleanup trap must not
-# attempt a second deactivation after this point.
 # ==============================================================================
 
 if [ "$MAINTENANCE_ACTIVE" = true ]; then
@@ -416,12 +371,9 @@ fi
 log "Pruning old releases"
 
 while IFS= read -r OLD_RELEASE; do
-    # releases-dir only has to be an absolute path (see action.yml) — nothing
-    # stops it pointing at a shared directory (/tmp, /home, anything).
-    # Requiring migrations/components.txt — present in every release this
-    # pipeline creates, since the action uploads it unconditionally — means
-    # an unrelated sibling directory there is never a match, no matter how
-    # old it is, rather than being swept up by name/age alone.
+    # Only remove directories that look like ours (releases-dir could point
+    # anywhere absolute) — every real release has this file, so an unrelated
+    # sibling directory never matches.
     if [ ! -f "$OLD_RELEASE/migrations/components.txt" ]; then
         log "  Skipping $OLD_RELEASE — doesn't look like a release this pipeline created"
         continue

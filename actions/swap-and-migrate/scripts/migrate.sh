@@ -6,21 +6,14 @@ set -euo pipefail
 #
 # Uploaded to the server by the swap-and-migrate action on each deploy.
 # Do not copy or edit this file per-project — changes belong in the action.
+# See the README for design rationale — comments below are just flow notes.
 #
-# Called as a subprocess from swap.sh during an atomic deploy. Applies pending
-# SQL migrations directly against the live tables — there is no clone or
-# backup to fall back to if a migration fails partway through.
-#
-# Migration files must use __WP_PREFIX__ as a placeholder for the table prefix.
-# This token is replaced with TARGET_PREFIX before execution, ensuring only
-# explicit prefix references are rewritten — never string literals or comments
-# that happen to contain the prefix substring.
-#
-# A migration file may optionally split its SQL into "-- +migrate Up" and
-# "-- +migrate Down" sections — only the Up section runs here (Down is used
-# by rollback.sh, uploaded alongside this file but never run automatically).
-# A file with no markers at all is treated as Up-only, for migrations written
-# before this convention existed.
+# Called as a subprocess from swap.sh. Applies pending SQL migrations
+# directly against the live tables. Migration files use __WP_PREFIX__ as a
+# placeholder for the table prefix, replaced with TARGET_PREFIX before
+# execution. Files may split into "-- +migrate Up"/"-- +migrate Down"
+# sections — only Up runs here; Down is for rollback.sh. No markers at all
+# = treated as Up-only.
 #
 # Example:
 #   -- +migrate Up
@@ -33,11 +26,8 @@ set -euo pipefail
 #   WP_ROOT           Absolute path to the WordPress root
 #   MIGRATIONS_TABLE  Tracking table name (pre-computed by swap.sh)
 #   TARGET_PREFIX     Table prefix to target — the live prefix (e.g. wp_)
-#   BATCH             Identifier grouping migrations applied by this deploy
-#                      (the deploy's full 40-character commit SHA — not the
-#                      short one, which can collide between two different
-#                      commits as a repository grows) — rollback.sh undoes
-#                      one batch at a time.
+#   BATCH             Full commit SHA grouping this deploy's migrations —
+#                      rollback.sh undoes one batch at a time
 # ==============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -45,9 +35,8 @@ QUERIES_DIR="$SCRIPT_DIR/queries"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 
-# Extracts the "Up" or "Down" section from a migration file. A file with no
-# "-- +migrate Up" marker at all is treated as one plain Up-only migration —
-# prints the whole file for "up", nothing for "down".
+# Extracts the "up" or "down" section from a migration file. No markers at
+# all = treated as one plain up-only migration.
 extract_section() {
     local file="$1" section="$2"
     if [ "$section" = "down" ]; then
@@ -65,8 +54,7 @@ extract_section() {
 }
 
 # ==============================================================================
-# Step 1: Ensure tracking table exists (and carries the batch column, for
-# tables created before that column existed).
+# Step 1: Ensure tracking table exists, with a wide-enough batch column
 # ==============================================================================
 
 wp db query "
@@ -78,16 +66,9 @@ wp db query "
     )
 " --path="$WP_ROOT"
 
-# "ADD COLUMN IF NOT EXISTS" is a MySQL 8.0.29+/MariaDB extension, not
-# standard SQL — a syntax error on stock MySQL 5.7, still a WordPress-
-# supported minimum. information_schema.COLUMNS works everywhere, so check
-# there first and only run a plain ADD COLUMN when it's actually missing.
-#
-# Also widens an existing-but-too-narrow column: tables created by an
-# earlier version of this script have batch VARCHAR(8) (the deploy's short
-# SHA); inserting a full 40-character SHA into that would truncate silently
-# or error outright depending on SQL mode, so upgrade it in place rather
-# than assuming "exists" already means "wide enough".
+# No "ADD COLUMN IF NOT EXISTS" — not portable to MySQL 5.7. Check via
+# information_schema instead, and widen an existing-but-narrower column
+# (tables from an earlier version of this script have VARCHAR(8)).
 BATCH_COLUMN_LENGTH=$(wp db query \
     "SELECT COALESCE(CHARACTER_MAXIMUM_LENGTH, 0) FROM information_schema.COLUMNS \
      WHERE TABLE_SCHEMA = DATABASE() \
@@ -110,13 +91,9 @@ if [ ! -d "$QUERIES_DIR" ]; then
     exit 0
 fi
 
-# No error-swallowing fallback: Step 1 above already guarantees the table
-# exists, so a failure here means a real problem (DB connectivity,
-# permissions) — that must propagate and stop the script via set -e, not
-# get substituted with an empty "nothing applied yet" result. Treating a
-# transient failure as "nothing applied" would mark every already-applied
-# migration as pending again and replay them, which for a non-idempotent
-# migration can modify data twice or fail partway through live changes.
+# No error-swallowing here — the table's existence is already guaranteed by
+# Step 1, so a failure means a real problem and must propagate via set -e,
+# not get treated as "nothing applied" (which would replay every migration).
 APPLIED=$(wp db query \
     "SELECT filename FROM \`$MIGRATIONS_TABLE\`" \
     --path="$WP_ROOT" --skip-column-names)

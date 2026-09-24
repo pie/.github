@@ -27,7 +27,7 @@ on:
         required: true
       releases-dir:
         type: string
-        description: "Absolute path to the releases directory on the server. Defaults to a 'releases' sibling of wp-root when not set."
+        description: "Absolute path to the releases directory on the server. Defaults to a 'releases' subdirectory inside wp-root when not set."
         required: false
         default: ""
       site-url:

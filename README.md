@@ -418,7 +418,7 @@ These composite actions are used internally by the workflows above but can also 
 
 Copy `templates/migrations/` into your project to get the `migrations/queries/` directory structure. No scripts are needed per-project — `swap.sh` and `migrate.sh` are bundled with the action and uploaded to the server automatically on each deploy; `rollback.sh` is bundled separately and only uploaded when the **Rollback Migrations** workflow runs.
 
-The calling workflow should rsync `migrations/` to `releases/${{ github.sha }}/migrations` and pass the component list to the `atomic-deploy` workflow:
+The calling workflow should rsync `migrations/` to `releases/${{ needs.setup.outputs.short-sha }}/migrations` (see the Atomic Deploy example below) and pass the component list to the `atomic-deploy` workflow. Using `github.sha` (the full 40-character SHA) here instead would put `queries/` under a directory `swap.sh` never looks in — it always resolves the release directory from the short SHA — so migrations would silently never be found and the deploy would proceed as if none were pending:
 
 ```yaml
 components: |

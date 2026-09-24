@@ -5,27 +5,21 @@ set -euo pipefail
 # rollback.sh — Reverts the most recently applied batch of database migrations
 #
 # Uploaded fresh to the server by the rollback-migrations action each time it
-# runs — this is not part of a regular deploy, and nothing is left behind
-# afterward.
+# runs; nothing is left behind afterward. Runs directly against the live
+# tables — same as migrate.sh, no clone or backup. See the README for design
+# rationale — comments below are just flow notes.
 #
-# Runs directly against the live tables — same as migrate.sh, there is no
-# clone or backup here. Only migrations whose file has a "-- +migrate Down"
-# section are reverted, in reverse order of application; anything without one
-# is left as-is (its schema change stays in place, logged clearly) rather
-# than guessing at an undo or failing the whole run. A migration is only
-# marked as rolled back (its tracking row removed) once its Down section has
-# actually run successfully, so a failure partway through a batch leaves an
-# accurate record of what's still applied — re-running this script picks up
-# from there.
-#
-# Down only reverses schema shape, not data a migration deleted or
-# transformed — restore from your own backup for that.
+# Only migrations with a "-- +migrate Down" section are reverted, in reverse
+# order; anything without one is left as-is and logged. A migration's
+# tracking row is only removed once its Down actually succeeds, so a
+# failure partway through leaves an accurate record — re-running picks up
+# from there. Down reverses schema shape only, not data a migration deleted
+# or transformed.
 #
 # Injected by the action:
 #   WP_ROOT    Absolute path to the WordPress root
-#   REPO_NAME  GitHub repository name — the migrations table name is derived
-#              from this the same way swap.sh does, so this always finds the
-#              same tracking table a deploy would have used.
+#   REPO_NAME  GitHub repository name — migrations table name is derived
+#              from this the same way swap.sh does
 # ==============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -33,9 +27,8 @@ QUERIES_DIR="$SCRIPT_DIR/queries"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 
-# Extracts the "Up" or "Down" section from a migration file. A file with no
-# "-- +migrate Up" marker at all is treated as one plain Up-only migration —
-# prints the whole file for "up", nothing for "down".
+# Extracts the "up" or "down" section from a migration file. No markers at
+# all = treated as one plain up-only migration.
 extract_section() {
     local file="$1" section="$2"
     if [ "$section" = "down" ]; then
@@ -67,15 +60,14 @@ wp db check --path="$WP_ROOT"
 
 TARGET_PREFIX=$(wp config get table_prefix --path="$WP_ROOT")
 
-# Same validation as swap.sh — TARGET_PREFIX is interpolated into SQL below.
+# Guard against SQL injection via a malformed table_prefix (interpolated below).
 if [[ ! "$TARGET_PREFIX" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
     echo "ERROR: table_prefix '$TARGET_PREFIX' contains unexpected characters — refusing to use it in SQL. Expected only letters, digits, and underscores, not starting with a digit." >&2
     exit 1
 fi
 
-# Same derivation as swap.sh (byte-for-byte — this must resolve to the same
-# tracking table name a deploy would have used, or this script rolls back
-# the wrong project's batch).
+# Byte-for-byte the same derivation as swap.sh — must resolve to the same
+# tracking table, or this script rolls back the wrong project's batch.
 MIGRATIONS_SUFFIX="_migrations"
 REPO_SLUG_RAW="$(printf '%s' "$REPO_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g')"
 MAX_SLUG_LEN=$(( 64 - ${#TARGET_PREFIX} - ${#MIGRATIONS_SUFFIX} ))
@@ -85,15 +77,8 @@ if [ "$MAX_SLUG_LEN" -lt 1 ]; then
 fi
 
 if [ "${#REPO_SLUG_RAW}" -gt "$MAX_SLUG_LEN" ]; then
-    # A flat cut here risks two different repo names truncating to the same
-    # prefix (e.g. "client-a-main-site" and "client-a-staging-site"), which
-    # would collide on one shared tracking table — and this script would
-    # then roll back whichever project's batch happened to be most recent
-    # in it. Reserve room for a short, deterministic hash of the full name
-    # so a truncated slug still stays unique even when its visible prefix
-    # doesn't. Left alone (the common case), REPO_SLUG is unchanged from
-    # before, so already-deployed sites keep resolving to the same
-    # tracking table they always have.
+    # Append a hash when truncating so two long, similarly-prefixed repo
+    # names can't collide on the same tracking table.
     REPO_HASH="$(printf '%s' "$REPO_NAME" | md5sum | cut -c1-8)"
     TRUNCATE_LEN=$(( MAX_SLUG_LEN - 1 - ${#REPO_HASH} ))
     if [ "$TRUNCATE_LEN" -lt 1 ]; then
@@ -112,10 +97,8 @@ if [ ! -d "$QUERIES_DIR" ]; then
     exit 0
 fi
 
-# The batch column is normally added by migrate.sh, but only as a side
-# effect of a deploy that has a pending migration to apply — this script
-# can't assume that has already happened by the time it runs, so it ensures
-# both the table and the column exist itself, the same way migrate.sh does.
+# migrate.sh normally creates/upgrades this table, but only as a side effect
+# of a deploy with a pending migration — can't assume that already ran.
 wp db query "
     CREATE TABLE IF NOT EXISTS \`$MIGRATIONS_TABLE\` (
         id         INT AUTO_INCREMENT PRIMARY KEY,
@@ -125,17 +108,8 @@ wp db query "
     )
 " --path="$WP_ROOT"
 
-# "ADD COLUMN IF NOT EXISTS" is a MySQL 8.0.29+/MariaDB extension, not
-# standard SQL — a syntax error on stock MySQL 5.7, still a WordPress-
-# supported minimum. information_schema.COLUMNS works everywhere, so check
-# there first and only run a plain ADD COLUMN when it's actually missing —
-# matches migrate.sh.
-#
-# Also widens an existing-but-too-narrow column: tables created by an
-# earlier version of this script have batch VARCHAR(8) (the deploy's short
-# SHA); inserting a full 40-character SHA into that would truncate silently
-# or error outright depending on SQL mode, so upgrade it in place rather
-# than assuming "exists" already means "wide enough".
+# No "ADD COLUMN IF NOT EXISTS" — not portable to MySQL 5.7. Check via
+# information_schema instead, and widen an existing-but-narrower column.
 BATCH_COLUMN_LENGTH=$(wp db query \
     "SELECT COALESCE(CHARACTER_MAXIMUM_LENGTH, 0) FROM information_schema.COLUMNS \
      WHERE TABLE_SCHEMA = DATABASE() \
@@ -149,16 +123,11 @@ elif [ "$BATCH_COLUMN_LENGTH" -lt 40 ]; then
     wp db query "ALTER TABLE \`$MIGRATIONS_TABLE\` MODIFY COLUMN batch VARCHAR(40) NOT NULL DEFAULT ''" --path="$WP_ROOT"
 fi
 
-# COUNT(*) always returns exactly one row, even when it's 0 — wp db query
-# falls back to printing a generic status line instead of nothing for a
-# SELECT that matches zero rows, which a direct "is this empty" check on a
-# LIMIT 1 query could mistake for real output. Gate on the count first.
-#
-# No error-swallowing fallback here: the table is already guaranteed to
-# exist by this point (created, or column-checked, just above), so a
-# failure now means a real problem (DB outage, permissions) — that must
-# propagate and stop the script via set -e, not get treated as "0 rows" and
-# silently report the requested rollback as having nothing to do.
+# COUNT(*) always returns one row even when 0 — wp db query prints a generic
+# status line instead of nothing for a zero-row SELECT, which a direct
+# "is this empty" check could mistake for real output. No error-swallowing
+# fallback either: the table's existence is already guaranteed above, so a
+# failure now must propagate rather than get treated as "0 rows".
 MIGRATION_COUNT=$(wp db query \
     "SELECT COUNT(*) FROM \`$MIGRATIONS_TABLE\`" \
     --path="$WP_ROOT" --skip-column-names)
@@ -172,13 +141,9 @@ BATCH=$(wp db query \
     "SELECT batch FROM \`$MIGRATIONS_TABLE\` ORDER BY id DESC LIMIT 1" \
     --path="$WP_ROOT" --skip-column-names)
 
-# A blank batch means the most recently applied migration predates batch
-# tracking (it was backfilled to '' by the ADD COLUMN default above, not a
-# real deploy identifier) — there's no way to reconstruct which historical
-# migrations actually shipped together, and matching on WHERE batch = ''
-# below would sweep in every other pre-tracking row too, not just the
-# intended one. Refuse rather than guess; revert it by hand instead, e.g.
-# by running its Down section directly against a specific filename.
+# Blank batch = predates batch tracking (backfilled default, not a real
+# deploy id) — matching WHERE batch = '' would sweep in every other
+# pre-tracking row too. Refuse rather than guess; revert that one by hand.
 if [ -z "$BATCH" ]; then
     echo "ERROR: The most recently applied migration has no batch recorded (it predates batch tracking) — refusing to roll back, since an empty batch would match every pre-tracking migration at once. Revert it manually instead." >&2
     exit 1
@@ -191,14 +156,9 @@ FILENAMES=$(wp db query \
     "SELECT filename FROM \`$MIGRATIONS_TABLE\` WHERE batch = '$SAFE_BATCH' ORDER BY id DESC" \
     --path="$WP_ROOT" --skip-column-names)
 
-# Wrap the actual DDL below in a maintenance window — same reasoning as
-# swap.sh: a rollback that drops or renames a column can otherwise race
-# live requests hitting that table mid-change. If maintenance mode is
-# already active (e.g. left on by a deploy that's mid-recovery), leave it
-# exactly as-is rather than touching state that belongs to that other
-# situation — only restore what this script itself changed, on the way out
-# regardless of whether the revert loop below succeeds or fails partway
-# through.
+# Maintenance mode for the DDL below — same reasoning as swap.sh. If already
+# active (e.g. a deploy mid-recovery), leave it as-is; only restore what
+# this script itself changed, on the way out regardless of outcome.
 MAINTENANCE_ALREADY_ACTIVE=false
 if [ -f "$WP_ROOT/.maintenance" ]; then
     MAINTENANCE_ALREADY_ACTIVE=true
