@@ -1,0 +1,152 @@
+name: Swap and Migrate
+description: "Performs maintenance mode, database migrations, and atomic component swap in a single SSH session"
+
+inputs:
+  wp-root:
+    description: "Absolute path to the WordPress root on the remote server (must start with /)"
+    required: true
+  git-sha:
+    description: "Short git commit SHA for the current deployment — used for the release directory name only"
+    required: true
+  full-git-sha:
+    description: "Full (40-character) git commit SHA for the current deployment — used to group migrations by deploy in the tracking table. The short SHA alone isn't safe for this: as a repository grows, two different commits can share the same short-SHA prefix, which would make a rollback revert migrations from two unrelated deploys as if they were one batch."
+    required: true
+  repo-name:
+    description: "Repository name used to derive the migrations tracking table name"
+    required: true
+  components:
+    description: "Newline-separated list of components to deploy, one per line in type:name format (e.g. plugins:my-plugin)"
+    required: true
+  releases-dir:
+    description: "Absolute path to the releases directory on the server. Defaults to a 'releases' subdirectory inside wp-root when not set."
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Validate inputs
+      shell: bash
+      env:
+        WP_ROOT: ${{ inputs.wp-root }}
+        RELEASES_DIR_INPUT: ${{ inputs.releases-dir }}
+        GIT_SHA: ${{ inputs.git-sha }}
+        FULL_GIT_SHA: ${{ inputs.full-git-sha }}
+      run: |
+        # git-sha/full-git-sha feed into MIGRATIONS_DIR, used unquoted-for-
+        # remote-shell in the scp destinations below — same risk as
+        # wp-root/releases-dir. Enforcing the documented hex format (rather
+        # than trying to quote for scp's own remote-side parsing) closes it.
+        if [[ ! "$GIT_SHA" =~ ^[0-9a-f]{8}$ ]]; then
+          echo "Error: git-sha must be exactly 8 lowercase hex characters." >&2
+          exit 1
+        fi
+
+        if [[ ! "$FULL_GIT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "Error: full-git-sha must be exactly 40 lowercase hex characters." >&2
+          exit 1
+        fi
+
+        if [[ "$WP_ROOT" != '/'* ]] || [ "$WP_ROOT" = "/" ]; then
+          echo "Error: wp-root must be an absolute path starting with / and not the filesystem root itself (e.g. /home/piecode/site/public_html)." >&2
+          exit 1
+        fi
+
+        # The "Upload swap scripts to server" step's scp calls below use a
+        # path derived from these inputs against a remote-shell-interpreting
+        # destination — %q-quoting (used for the ssh commands here) only
+        # protects the local shell, not scp's own remote-side parsing.
+        # Keeping to a safe character set closes that off regardless.
+        if [[ ! "$WP_ROOT" =~ ^/[A-Za-z0-9/_.-]*$ ]]; then
+          echo "Error: wp-root must contain only letters, digits, and /_.- characters." >&2
+          exit 1
+        fi
+
+        # The character whitelist above still permits ".." — e.g. /var/../releases
+        # — which resolves outside wp-root entirely rather than being rejected.
+        if [[ "$WP_ROOT" == *".."* ]]; then
+          echo "Error: wp-root must not contain '..' path components." >&2
+          exit 1
+        fi
+
+        # A relative override here ends up relative to whatever directory the
+        # SSH login session lands in, not wp-root — and swap.sh's pruning step
+        # runs rm -rf against whatever it finds there, unrelated first-level
+        # directories included. The exact-"/" case matters too: swap.sh later
+        # runs chmod/mkdir/writes an .htaccess directly against releases-dir.
+        if [ -n "$RELEASES_DIR_INPUT" ] && { [[ "$RELEASES_DIR_INPUT" != '/'* ]] || [ "$RELEASES_DIR_INPUT" = "/" ]; }; then
+          echo "Error: releases-dir must be an absolute path starting with / and not the filesystem root itself (e.g. /home/piecode/site/public_html/releases)." >&2
+          exit 1
+        fi
+
+        if [ -n "$RELEASES_DIR_INPUT" ] && [[ ! "$RELEASES_DIR_INPUT" =~ ^/[A-Za-z0-9/_.-]*$ ]]; then
+          echo "Error: releases-dir must contain only letters, digits, and /_.- characters." >&2
+          exit 1
+        fi
+
+        if [ -n "$RELEASES_DIR_INPUT" ] && [[ "$RELEASES_DIR_INPUT" == *".."* ]]; then
+          echo "Error: releases-dir must not contain '..' path components." >&2
+          exit 1
+        fi
+
+        # Trailing-slash-normalized: releases-dir == wp-root would deny/chmod
+        # the entire WordPress root, not just a releases subdirectory.
+        if [ -n "$RELEASES_DIR_INPUT" ] && [ "${RELEASES_DIR_INPUT%/}" = "${WP_ROOT%/}" ]; then
+          echo "Error: releases-dir must not be the same path as wp-root." >&2
+          exit 1
+        fi
+
+        # Belt and braces: whatever releases-dir resolves to, swap.sh's
+        # .htaccess/chmod only ever target it directly — requiring its final
+        # path segment to actually be "releases" rules out wp-root, "/", or
+        # any unrelated directory ending up there, however it was misconfigured.
+        if [ -n "$RELEASES_DIR_INPUT" ] && [ "$(basename "${RELEASES_DIR_INPUT%/}")" != "releases" ]; then
+          echo "Error: releases-dir must be a directory named 'releases' (e.g. /home/piecode/site/public_html/releases)." >&2
+          exit 1
+        fi
+
+    - name: Upload swap scripts to server
+      shell: bash
+      env:
+        WP_ROOT: ${{ inputs.wp-root }}
+        GIT_SHA: ${{ inputs.git-sha }}
+        DEPLOY_COMPONENTS: ${{ inputs.components }}
+        RELEASES_DIR_INPUT: ${{ inputs.releases-dir }}
+      run: |
+        if [ -n "$RELEASES_DIR_INPUT" ]; then
+          RELEASES_DIR="$RELEASES_DIR_INPUT"
+        else
+          RELEASES_DIR="$WP_ROOT/releases"
+        fi
+        MIGRATIONS_DIR="$RELEASES_DIR/$GIT_SHA/migrations"
+        MIGRATIONS_DIR_Q=$(printf '%q' "$MIGRATIONS_DIR")
+        ssh server "mkdir -p $MIGRATIONS_DIR_Q"
+        scp "$GITHUB_ACTION_PATH/scripts/swap.sh" "server:$MIGRATIONS_DIR/swap.sh"
+        scp "$GITHUB_ACTION_PATH/scripts/migrate.sh" "server:$MIGRATIONS_DIR/migrate.sh"
+        printf '%s' "$DEPLOY_COMPONENTS" | ssh server "cat > $MIGRATIONS_DIR_Q/components.txt"
+
+    - name: Run atomic swap and migrations
+      shell: bash
+      env:
+        WP_ROOT: ${{ inputs.wp-root }}
+        GIT_SHA: ${{ inputs.git-sha }}
+        FULL_GIT_SHA: ${{ inputs.full-git-sha }}
+        REPO_NAME: ${{ inputs.repo-name }}
+        RELEASES_DIR_INPUT: ${{ inputs.releases-dir }}
+      run: |
+        WP_ROOT_Q=$(printf '%q' "$WP_ROOT")
+        GIT_SHA_Q=$(printf '%q' "$GIT_SHA")
+        FULL_GIT_SHA_Q=$(printf '%q' "$FULL_GIT_SHA")
+        REPO_NAME_Q=$(printf '%q' "$REPO_NAME")
+        if [ -n "$RELEASES_DIR_INPUT" ]; then
+          RELEASES_DIR="$RELEASES_DIR_INPUT"
+        else
+          RELEASES_DIR="$WP_ROOT/releases"
+        fi
+        RELEASES_DIR_Q=$(printf '%q' "$RELEASES_DIR")
+        SWAP_SCRIPT="$RELEASES_DIR/$GIT_SHA/migrations/swap.sh"
+        SWAP_SCRIPT_Q=$(printf '%q' "$SWAP_SCRIPT")
+        # RUN_ID makes the dry run's scratch-table prefix unique to this
+        # workflow run, not just this SHA — see swap.sh for why.
+        RUN_ID_Q=$(printf '%q' "$GITHUB_RUN_ID")
+        ssh server "env WP_ROOT=$WP_ROOT_Q GIT_SHA=$GIT_SHA_Q FULL_GIT_SHA=$FULL_GIT_SHA_Q REPO_NAME=$REPO_NAME_Q RELEASES_DIR=$RELEASES_DIR_Q RUN_ID=$RUN_ID_Q bash $SWAP_SCRIPT_Q"

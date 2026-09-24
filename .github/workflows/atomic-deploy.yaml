@@ -1,0 +1,142 @@
+name: Atomic Deploy
+
+on:
+  workflow_call:
+    inputs:
+      ssh-host:
+        type: string
+        description: "SSH host to connect to"
+        required: true
+      ssh-user:
+        type: string
+        description: "SSH user to connect with"
+        required: false
+        default: piecode
+      ssh-port:
+        type: number
+        description: "SSH port to connect to"
+        required: false
+        default: 22
+      wp-root:
+        type: string
+        description: "Absolute path to the WordPress root on the remote server (must start with /)"
+        required: true
+      components:
+        type: string
+        description: "Newline-separated list of components to deploy, one per line in type:name format (e.g. plugins:my-plugin)"
+        required: true
+      releases-dir:
+        type: string
+        description: "Absolute path to the releases directory on the server. Defaults to a 'releases' subdirectory inside wp-root when not set."
+        required: false
+        default: ""
+      site-url:
+        type: string
+        description: "Public URL of the site (e.g. https://example.com). When set, a final check confirms releases/ isn't reachable over HTTP after the deploy — see README Requirements. Optional, but strongly recommended; the check is skipped entirely when omitted."
+        required: false
+        default: ""
+    secrets:
+      SSH_PRIVATE_KEY:
+        description: "SSH private key"
+        required: true
+
+concurrency:
+  group: atomic-deploy-${{ inputs.ssh-host }}-${{ inputs.wp-root }}
+  cancel-in-progress: false
+
+jobs:
+  atomic_deploy:
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Compute short SHA
+        id: sha
+        shell: bash
+        run: echo "short_sha=${GITHUB_SHA:0:8}" >> $GITHUB_OUTPUT
+
+      - uses: pie/.github/actions/add-ssh-config@feature/add-symlink-and-sql-flows
+        name: Add SSH key to runner
+        with:
+          ssh-user: ${{inputs.ssh-user}}
+          ssh-port: ${{inputs.ssh-port}}
+          ssh-host: ${{inputs.ssh-host}}
+          ssh-key: ${{secrets.SSH_PRIVATE_KEY}}
+
+      - uses: pie/.github/actions/swap-and-migrate@feature/add-symlink-and-sql-flows
+        name: Run atomic swap and migrations
+        with:
+          wp-root: ${{inputs.wp-root}}
+          git-sha: ${{ steps.sha.outputs.short_sha }}
+          full-git-sha: ${{ github.sha }}
+          repo-name: ${{github.event.repository.name}}
+          components: ${{inputs.components}}
+          releases-dir: ${{inputs.releases-dir}}
+
+      - name: Verify releases/ is not publicly reachable
+        if: always()
+        shell: bash
+        env:
+          SITE_URL: ${{ inputs.site-url }}
+          SHORT_SHA: ${{ steps.sha.outputs.short_sha }}
+          WP_ROOT: ${{ inputs.wp-root }}
+          RELEASES_DIR_INPUT: ${{ inputs.releases-dir }}
+        run: |
+          if [ -z "$SITE_URL" ]; then
+            echo "site-url not set — skipping releases/ exposure check. See README Requirements."
+            exit 0
+          fi
+
+          # Mirrors swap-and-migrate's own default-resolution for releases-dir,
+          # so this checks whatever directory the deploy actually wrote to,
+          # not always literally "releases/" — a releases-dir override with a
+          # different name would otherwise make this check probe the wrong
+          # path, 404, and report "safe" while the real directory sits
+          # unprotected.
+          if [ -n "$RELEASES_DIR_INPUT" ]; then
+            RELEASES_DIR="$RELEASES_DIR_INPUT"
+          else
+            RELEASES_DIR="$WP_ROOT/releases"
+          fi
+
+          # Only resolvable to a public URL path when releases-dir is inside
+          # wp-root (the standard, documented setup). An override that lands
+          # outside wp-root isn't web-reachable via site-url at all, and
+          # guessing a path here would risk the same false "safe" result this
+          # is meant to avoid — skip explicitly instead.
+          case "$RELEASES_DIR/" in
+            "$WP_ROOT"/*)
+              RELATIVE_RELEASES_PATH="${RELEASES_DIR#"$WP_ROOT"/}"
+              ;;
+            *)
+              echo "releases-dir ('$RELEASES_DIR') isn't inside wp-root ('$WP_ROOT') — can't derive its public URL path, skipping releases/ exposure check."
+              exit 0
+              ;;
+          esac
+
+          # Deliberately doesn't affect the deploy above, which has already
+          # fully completed by this point — there's nothing to roll back.
+          # This only determines whether the job is reported as failed, so
+          # an exposed releases/ directory surfaces via GitHub's own
+          # workflow-failure notification instead of going unnoticed.
+          CHECK_URL="${SITE_URL%/}/${RELATIVE_RELEASES_PATH}/${SHORT_SHA}/migrations/components.txt"
+          set +e
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$CHECK_URL")
+          CURL_EXIT=$?
+          set -e
+
+          # curl exits non-zero (and/or reports status 000) on a connection,
+          # DNS, or TLS failure — that means the probe never happened, not
+          # that it passed. Treating "couldn't check" as "checked and it's
+          # fine" would let a typo'd site-url (or the site being briefly
+          # unreachable) mask a real exposure indefinitely.
+          if [ "$CURL_EXIT" -ne 0 ] || [ "$STATUS" = "000" ]; then
+            echo "::error::Could not reach $CHECK_URL to check releases/ exposure (curl exit $CURL_EXIT, status '$STATUS') — this is not evidence releases/ is protected, only that the probe failed. Verify site-url is correct and the site is reachable."
+            exit 1
+          fi
+
+          if [ "$STATUS" = "200" ]; then
+            echo "::error::${RELATIVE_RELEASES_PATH}/ is publicly reachable — $CHECK_URL returned HTTP 200. The deploy above already completed; this needs the host-side protection in the README's Requirements section fixed before the next deploy."
+            exit 1
+          fi
+
+          echo "releases/ exposure check passed — $CHECK_URL returned HTTP $STATUS."
