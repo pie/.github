@@ -215,8 +215,13 @@ while IFS= read -r FILENAME; do
     SQL_FILE="$QUERIES_DIR/$FILENAME"
 
     if [ ! -f "$SQL_FILE" ]; then
-        log "WARN: $FILENAME is recorded as applied but its file is missing from queries/ — skipping, tracking row left as-is"
-        continue
+        # Not a benign skip like a missing Down section: continuing here
+        # would let the loop finish having reverted nothing, still report
+        # success, and deactivate maintenance mode. Fail instead — the
+        # exit trap above already decides safe-vs-unsafe from SAFE_TO_RECOVER
+        # depending on whether an earlier file in this batch already reverted.
+        echo "ERROR: $FILENAME is recorded as applied but its file is missing from queries/ — cannot verify or revert it. Tracking row left as-is." >&2
+        exit 1
     fi
 
     DOWN_SQL=$(extract_section "$SQL_FILE" down)
