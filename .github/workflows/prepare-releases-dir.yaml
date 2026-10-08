@@ -1,0 +1,51 @@
+name: Prepare Releases Directory
+
+on:
+  workflow_call:
+    inputs:
+      ssh-host:
+        type: string
+        description: "SSH host to connect to"
+        required: true
+      ssh-user:
+        type: string
+        description: "SSH user to connect with"
+        required: false
+        default: piecode
+      ssh-port:
+        type: number
+        description: "SSH port to connect to"
+        required: false
+        default: 22
+      wp-root:
+        type: string
+        description: "Absolute path to the WordPress root on the remote server (must start with /)"
+        required: true
+      releases-dir:
+        type: string
+        description: "Absolute path to the releases directory on the server. Defaults to a 'releases' subdirectory inside wp-root when not set."
+        required: false
+        default: ""
+    secrets:
+      SSH_PRIVATE_KEY:
+        description: "SSH private key"
+        required: true
+
+jobs:
+  prepare_releases_dir:
+    runs-on: ubuntu-latest
+    steps:
+
+      - uses: pie/.github/actions/add-ssh-config@feature/add-symlink-and-sql-flows
+        name: Add SSH key to runner
+        with:
+          ssh-user: ${{inputs.ssh-user}}
+          ssh-port: ${{inputs.ssh-port}}
+          ssh-host: ${{inputs.ssh-host}}
+          ssh-key: ${{secrets.SSH_PRIVATE_KEY}}
+
+      - uses: pie/.github/actions/prepare-releases-dir@feature/add-symlink-and-sql-flows
+        name: Create and protect releases directory
+        with:
+          wp-root: ${{inputs.wp-root}}
+          releases-dir: ${{inputs.releases-dir}}

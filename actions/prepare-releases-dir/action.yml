@@ -1,0 +1,101 @@
+name: Prepare Releases Directory
+description: "Creates and protects the releases directory before anything is uploaded into it"
+
+inputs:
+  wp-root:
+    description: "Absolute path to the WordPress root on the remote server (must start with /)"
+    required: true
+  releases-dir:
+    description: "Absolute path to the releases directory on the server. Defaults to a 'releases' subdirectory inside wp-root when not set."
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Validate inputs
+      shell: bash
+      env:
+        WP_ROOT: ${{ inputs.wp-root }}
+        RELEASES_DIR_INPUT: ${{ inputs.releases-dir }}
+      run: |
+        if [[ "$WP_ROOT" != '/'* ]] || [ "$WP_ROOT" = "/" ]; then
+          echo "Error: wp-root must be an absolute path starting with / and not the filesystem root itself (e.g. /home/piecode/site/public_html)." >&2
+          exit 1
+        fi
+
+        # scp/rsync (used elsewhere in this pipeline with paths derived from
+        # these inputs) invoke a remote shell to interpret their destination
+        # path — unlike the ssh commands here, which quote safely via %q,
+        # that remote-side parsing isn't protected by local quoting. Keeping
+        # to a safe character set closes that off regardless.
+        if [[ ! "$WP_ROOT" =~ ^/[A-Za-z0-9/_.-]*$ ]]; then
+          echo "Error: wp-root must contain only letters, digits, and /_.- characters." >&2
+          exit 1
+        fi
+
+        # The character whitelist above still permits ".." — e.g. /var/../releases
+        # — which resolves outside wp-root entirely rather than being rejected.
+        if [[ "$WP_ROOT" == *".."* ]]; then
+          echo "Error: wp-root must not contain '..' path components." >&2
+          exit 1
+        fi
+
+        if [ -n "$RELEASES_DIR_INPUT" ] && { [[ "$RELEASES_DIR_INPUT" != '/'* ]] || [ "$RELEASES_DIR_INPUT" = "/" ]; }; then
+          echo "Error: releases-dir must be an absolute path starting with / and not the filesystem root itself (e.g. /home/piecode/site/public_html/releases)." >&2
+          exit 1
+        fi
+
+        if [ -n "$RELEASES_DIR_INPUT" ] && [[ ! "$RELEASES_DIR_INPUT" =~ ^/[A-Za-z0-9/_.-]*$ ]]; then
+          echo "Error: releases-dir must contain only letters, digits, and /_.- characters." >&2
+          exit 1
+        fi
+
+        if [ -n "$RELEASES_DIR_INPUT" ] && [[ "$RELEASES_DIR_INPUT" == *".."* ]]; then
+          echo "Error: releases-dir must not contain '..' path components." >&2
+          exit 1
+        fi
+
+        # Trailing-slash-normalized: releases-dir == wp-root would deny/chmod
+        # the entire WordPress root, not just a releases subdirectory.
+        if [ -n "$RELEASES_DIR_INPUT" ] && [ "${RELEASES_DIR_INPUT%/}" = "${WP_ROOT%/}" ]; then
+          echo "Error: releases-dir must not be the same path as wp-root." >&2
+          exit 1
+        fi
+
+        # Belt and braces: whatever releases-dir resolves to, the .htaccess/
+        # chmod below only ever target it directly — requiring its final path
+        # segment to actually be "releases" rules out wp-root, "/", or any
+        # unrelated directory ending up there, however it was misconfigured.
+        if [ -n "$RELEASES_DIR_INPUT" ] && [ "$(basename "${RELEASES_DIR_INPUT%/}")" != "releases" ]; then
+          echo "Error: releases-dir must be a directory named 'releases' (e.g. /home/piecode/site/public_html/releases)." >&2
+          exit 1
+        fi
+
+    - name: Create and protect releases directory
+      shell: bash
+      env:
+        WP_ROOT: ${{ inputs.wp-root }}
+        RELEASES_DIR_INPUT: ${{ inputs.releases-dir }}
+      run: |
+        if [ -n "$RELEASES_DIR_INPUT" ]; then
+          RELEASES_DIR="$RELEASES_DIR_INPUT"
+        else
+          RELEASES_DIR="$WP_ROOT/releases"
+        fi
+        RELEASES_DIR_Q=$(printf '%q' "$RELEASES_DIR")
+
+        # Runs before the plugin/theme/migrations rsync jobs and before
+        # swap-and-migrate uploads swap.sh/migrate.sh/components.txt —
+        # deliberately, so releases-dir is protected before anything ever
+        # lands in it, not only from swap.sh's Step 4 onward. swap.sh still
+        # repeats this on every deploy as a defensive, idempotent fallback
+        # (e.g. for callers that haven't added this job yet), but that alone
+        # runs after this deploy's own dry run and live migrations, which is
+        # too late if either of those fails first.
+        ssh server "mkdir -p $RELEASES_DIR_Q"
+        # Overwritten, not appended: this file has exactly one job, and
+        # Apache combines sibling Require directives as an OR, so appending
+        # next to a pre-existing "Require all granted" wouldn't deny anything.
+        ssh server "printf 'Require all denied\n' > $RELEASES_DIR_Q/.htaccess"
+        ssh server "chmod 700 $RELEASES_DIR_Q"

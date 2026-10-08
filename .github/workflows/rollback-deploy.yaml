@@ -1,0 +1,65 @@
+name: Rollback Deploy
+
+on:
+  workflow_call:
+    inputs:
+      ssh-host:
+        type: string
+        description: "SSH host to connect to"
+        required: true
+      ssh-user:
+        type: string
+        description: "SSH user to connect with"
+        required: false
+        default: piecode
+      ssh-port:
+        type: number
+        description: "SSH port to connect to"
+        required: false
+        default: 22
+      wp-root:
+        type: string
+        description: "Absolute path to the WordPress root on the remote server (must start with /)"
+        required: true
+      releases-dir:
+        type: string
+        description: "Absolute path to the releases directory on the server. Defaults to a 'releases' subdirectory inside wp-root when not set."
+        required: false
+        default: ""
+    secrets:
+      SSH_PRIVATE_KEY:
+        description: "SSH private key"
+        required: true
+
+# Same group key as atomic-deploy.yaml/rollback-migrations.yaml, deliberately
+# — this touches the same live tables, tracking table, and wp-content paths
+# a deploy or a migrations-only rollback would, so all three need to share
+# one queue rather than just being serialized against runs of their own
+# workflow.
+concurrency:
+  group: atomic-deploy-${{ inputs.ssh-host }}-${{ inputs.wp-root }}
+  cancel-in-progress: false
+
+jobs:
+  rollback_deploy:
+    runs-on: ubuntu-latest
+    steps:
+
+      # No checkout: unlike Rollback Migrations, this reads the current
+      # release's own components.txt/queries/full-sha.txt directly from
+      # releases/ on the server — the exact files that release actually
+      # deployed, not whatever a fresh checkout of some ref happens to have.
+      - uses: pie/.github/actions/add-ssh-config@feature/add-symlink-and-sql-flows
+        name: Add SSH key to runner
+        with:
+          ssh-user: ${{inputs.ssh-user}}
+          ssh-port: ${{inputs.ssh-port}}
+          ssh-host: ${{inputs.ssh-host}}
+          ssh-key: ${{secrets.SSH_PRIVATE_KEY}}
+
+      - uses: pie/.github/actions/rollback-deploy@feature/add-symlink-and-sql-flows
+        name: Roll back most recent release (files and migrations)
+        with:
+          wp-root: ${{inputs.wp-root}}
+          repo-name: ${{github.event.repository.name}}
+          releases-dir: ${{inputs.releases-dir}}

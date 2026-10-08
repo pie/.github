@@ -66,25 +66,14 @@ jobs:
             git push
 
         - name: Check for ignore file
-          id: check_files
-          uses: andstor/file-existence-action@v2
-          with:
-            files: ".zipignore"
-      
-        - name: File exists
-          if: steps.check_files.outputs.files_exists == 'true'
           shell: bash
-          # Only runs if all of the files exists
           run: |
-            sed -i '/^[[:space:]]*$/d' .zipignore
-            sed 's/^/${{ github.event.repository.name }}\//' .zipignore > ../.zipignore    
-    
-        - name: File does not exist
-          if: steps.check_files.outputs.files_exists != 'true'
-          shell: bash
-          # Only runs if any of the files does not exist
-          run: |
-            touch ../.zipignore
+            if [ -f ".zipignore" ]; then
+              sed -i '/^[[:space:]]*$/d' .zipignore
+              sed 's/^/${{ github.event.repository.name }}\//' .zipignore > ../.zipignore
+            else
+              touch ../.zipignore
+            fi
 
         # This step creates a zip of the plugin which can be used for installation, and by the plugin updater. 
         - name: Build required zip artifact

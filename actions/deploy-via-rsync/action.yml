@@ -82,8 +82,11 @@ runs:
 
     - name: Install dependencies and build
       if: ${{inputs.npm == 'true' }}
-      run: cd ${{inputs.working-directory}} && npm install && ${{inputs.npm-run-command}}
       shell: bash
+      env:
+        WORKING_DIR: ${{ inputs.working-directory }}
+        NPM_RUN_COMMAND: ${{ inputs.npm-run-command }}
+      run: cd "$WORKING_DIR" && npm install && $NPM_RUN_COMMAND
 
     # Replaces andstor/file-existence-action@v2 which targeted Node.js 20 (deprecated).
     # Checks if a .rsyncignore file exists in the repo root and sets the EXCLUDE_FROM
@@ -92,20 +95,34 @@ runs:
       shell: bash
       run: |
         if [ -f ".rsyncignore" ]; then
-          echo EXCLUDE_FROM=" --exclude-from=.rsyncignore " >> "$GITHUB_ENV"
+          echo "EXCLUDE_FROM= --exclude-from=.rsyncignore " >> "$GITHUB_ENV"
         else
-          echo EXCLUDE_FROM="" >> "$GITHUB_ENV"
+          echo "EXCLUDE_FROM=" >> "$GITHUB_ENV"
         fi
     
+    - name: Create destination directory (pubkey)
+      if: inputs.sshpass != 'true'
+      shell: bash
+      env:
+        DEST: ${{ inputs.destination-path }}
+      run: ssh server "mkdir -p $(printf '%q' "$DEST")"
+
     - name: Rsync to the remote with pubkey
       if: inputs.sshpass != 'true'
-      run: rsync ${{inputs.rsync-flags}}  ${{inputs.rsync-args}} ${{ env.EXCLUDE_FROM }} ${{inputs.source-path}} server:${{inputs.destination-path}}
       shell: bash
+      env:
+        RSYNC_FLAGS: ${{ inputs.rsync-flags }}
+        RSYNC_ARGS: ${{ inputs.rsync-args }}
+        SOURCE_PATH: ${{ inputs.source-path }}
+        DEST: ${{ inputs.destination-path }}
+      run: rsync $RSYNC_FLAGS $RSYNC_ARGS $EXCLUDE_FROM "$SOURCE_PATH" "server:$DEST"
 
     - name: Set SSHPASS environment variable
       if: inputs.sshpass == 'true'
-      run: echo "SSHPASS=${{inputs.ssh-pass}}" >> "$GITHUB_ENV"
       shell: bash
+      env:
+        SSH_PASS: ${{ inputs.ssh-pass }}
+      run: echo "SSHPASS=$SSH_PASS" >> "$GITHUB_ENV"
 
     - name: Check if SSHPASS is set (and set if not)
       if: inputs.sshpass == 'true'
@@ -118,7 +135,25 @@ runs:
         fi
       shell: bash
 
+    - name: Create destination directory (sshpass)
+      if: inputs.sshpass == 'true'
+      shell: bash
+      env:
+        DEST: ${{ inputs.destination-path }}
+        SSH_PORT: ${{ inputs.ssh-port }}
+        SSH_USER: ${{ inputs.ssh-user }}
+        SSH_HOST: ${{ inputs.ssh-host }}
+      run: sshpass -e ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "mkdir -p $(printf '%q' "$DEST")"
+
     - name: Rsync to the remote with sshpass
       if: inputs.sshpass == 'true'
-      run: sshpass -e rsync ${{inputs.rsync-flags}}  ${{inputs.rsync-args}} ${{ env.EXCLUDE_FROM }} -e 'ssh -o StrictHostKeyChecking=no -p ${{inputs.ssh-port}}'  ${{inputs.source-path}} ${{inputs.ssh-user}}@${{inputs.ssh-host}}:${{inputs.destination-path}}
       shell: bash
+      env:
+        RSYNC_FLAGS: ${{ inputs.rsync-flags }}
+        RSYNC_ARGS: ${{ inputs.rsync-args }}
+        SOURCE_PATH: ${{ inputs.source-path }}
+        DEST: ${{ inputs.destination-path }}
+        SSH_PORT: ${{ inputs.ssh-port }}
+        SSH_USER: ${{ inputs.ssh-user }}
+        SSH_HOST: ${{ inputs.ssh-host }}
+      run: sshpass -e rsync $RSYNC_FLAGS $RSYNC_ARGS $EXCLUDE_FROM -e "ssh -o StrictHostKeyChecking=no -p $SSH_PORT" "$SOURCE_PATH" "$SSH_USER@$SSH_HOST:$DEST"
