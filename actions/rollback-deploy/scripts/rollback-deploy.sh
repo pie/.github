@@ -96,14 +96,19 @@ MIGRATIONS_TABLE="${TARGET_PREFIX}${REPO_SLUG}_migrations"
 # Step 1: Identify the current and prior release
 # ==============================================================================
 
-# Only directories a deploy actually created — every real release has this
-# file, which distinguishes it from .rollback-*/.rollback-deploy-* temp
-# directories and any unrelated sibling (releases-dir could point anywhere).
+# deploy-complete.txt is required, not just components.txt — components.txt
+# is written before swap.sh even runs, so it only proves this release's
+# files were uploaded, not that swap.sh ever actually went live for it. A
+# release whose dry run or component swap failed partway would still have
+# components.txt; selecting it as current or prior would mean inspecting or
+# restoring to a release that was never actually live. deploy-complete.txt
+# is only written once swap.sh's migrations and component swap both
+# succeeded — same marker swap.sh's own pruning step now requires.
 readarray -t RELEASE_DIRS < <(
     find "$RELEASES_DIR" -maxdepth 1 -mindepth 1 -type d -printf '%T@ %p\n' 2>/dev/null \
         | sort -rn | cut -d' ' -f2- \
         | while IFS= read -r DIR; do
-              [ -f "$DIR/migrations/components.txt" ] && printf '%s\n' "$DIR"
+              [ -f "$DIR/migrations/deploy-complete.txt" ] && printf '%s\n' "$DIR"
           done
 )
 

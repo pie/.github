@@ -437,6 +437,14 @@ for COMPONENT in "${COMPONENTS[@]}"; do
     log "  $TYPE/$NAME -> $RELEASE_PATH"
 done
 
+# Written only once migrations (if any) and the component swap have both
+# fully succeeded — components.txt alone only proves this release's files
+# were uploaded, not that swap.sh ever actually went live for it. Pruning
+# below and rollback-deploy's release selection both require this marker,
+# not just components.txt, so a release whose swap failed partway is never
+# mistaken for one that completed.
+touch "$NEW_RELEASE_DIR/migrations/deploy-complete.txt"
+
 # ==============================================================================
 # Step 5: Disable maintenance mode
 #
@@ -464,18 +472,29 @@ fi
 
 log "Pruning old releases"
 
-while IFS= read -r OLD_RELEASE; do
-    # Only remove directories that look like ours (releases-dir could point
-    # anywhere absolute) — every real release has this file, so an unrelated
-    # sibling directory never matches.
-    if [ ! -f "$OLD_RELEASE/migrations/components.txt" ]; then
-        log "  Skipping $OLD_RELEASE — doesn't look like a release this pipeline created"
+# Keeps the single newest OTHER release that actually completed (has
+# deploy-complete.txt) as "prior" — a release whose swap failed partway
+# never finished going live, so it doesn't occupy that slot and is pruned
+# away like any older release once a completed one exists. components.txt
+# is still required to delete anything at all: every real release has it,
+# so an unrelated sibling directory (releases-dir could point anywhere
+# absolute) never matches and is left alone either way.
+KEPT_PRIOR=""
+while IFS= read -r CANDIDATE; do
+    if [ -z "$KEPT_PRIOR" ] && [ -f "$CANDIDATE/migrations/deploy-complete.txt" ]; then
+        KEPT_PRIOR="$CANDIDATE"
+        log "  Keeping $CANDIDATE as prior release"
         continue
     fi
-    log "  Removing $OLD_RELEASE"
-    rm -rf "$OLD_RELEASE" || log "WARN: Could not remove $OLD_RELEASE — manual cleanup may be needed"
+
+    if [ ! -f "$CANDIDATE/migrations/components.txt" ]; then
+        log "  Skipping $CANDIDATE — doesn't look like a release this pipeline created"
+        continue
+    fi
+    log "  Removing $CANDIDATE"
+    rm -rf "$CANDIDATE" || log "WARN: Could not remove $CANDIDATE — manual cleanup may be needed"
 done < <(find "$RELEASES_DIR" -maxdepth 1 -mindepth 1 -type d \
     ! -name "$GIT_SHA" ! -name "initial" \
-    -printf '%T@ %p\n' | sort -rn | tail -n +2 | cut -d' ' -f2-)
+    -printf '%T@ %p\n' | sort -rn | cut -d' ' -f2-)
 
 log "Atomic deploy complete — $GIT_SHA is live"
