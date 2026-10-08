@@ -131,14 +131,18 @@ for SQL_FILE in "${PENDING[@]}"; do
     # DDL can't be wrapped in the same transaction as this INSERT — MySQL
     # commits it immediately regardless. If recording fails here, the schema
     # change already landed but isn't tracked; a blind retry would treat it
-    # as still pending and re-run its Up section. Name the exact fix instead
-    # of letting this propagate as an unexplained failure.
+    # as still pending and re-run its Up section. ON DUPLICATE KEY UPDATE
+    # absorbs the one specific case where a tracking row for this filename
+    # already exists (e.g. a stale pending-detection read) by just refreshing
+    # its batch instead of erroring — any other failure (connection drop,
+    # permissions, etc.) still falls through to the error below.
     if ! wp db query \
-        "INSERT INTO \`$MIGRATIONS_TABLE\` (filename, batch) VALUES ('$SAFE_FILENAME', '$SAFE_BATCH')" \
+        "INSERT INTO \`$MIGRATIONS_TABLE\` (filename, batch) VALUES ('$SAFE_FILENAME', '$SAFE_BATCH') \
+         ON DUPLICATE KEY UPDATE batch = VALUES(batch)" \
         --path="$WP_ROOT"; then
         echo "ERROR: $FILENAME's schema change succeeded, but recording it in $MIGRATIONS_TABLE failed." >&2
         echo "ERROR: Retrying this deploy as-is would re-run $FILENAME's Up section. Before retrying, either:" >&2
-        echo "ERROR:   1. Manually run: INSERT INTO \`$MIGRATIONS_TABLE\` (filename, batch) VALUES ('$SAFE_FILENAME', '$SAFE_BATCH');" >&2
+        echo "ERROR:   1. Manually run: INSERT INTO \`$MIGRATIONS_TABLE\` (filename, batch) VALUES ('$SAFE_FILENAME', '$SAFE_BATCH') ON DUPLICATE KEY UPDATE batch = VALUES(batch);" >&2
         echo "ERROR:   2. Or confirm $FILENAME's Up section is safe to run twice before deploying again." >&2
         exit 1
     fi
