@@ -186,6 +186,8 @@ jobs:
 
 **Rollback:**
 
+To undo the most recent deploy as a whole — files and any migrations it applied, together — use the [Rollback Deploy](#rollback-deploy) workflow instead of doing this by hand; it performs the same steps below with the strict verification described in its own section, and only ever targets the single most recent release. What follows is the manual process it automates, plus what to do for cases it doesn't cover: rolling back further than one release, or recovering from a deploy that failed partway through (Rollback Deploy's checks will refuse to run against a site in that state, by design).
+
 If no migrations ran, resync each component from the prior release back to the live directory:
 
 ```bash
@@ -249,6 +251,60 @@ on:
 jobs:
   rollback_migrations:
     uses: pie/.github/.github/workflows/rollback-migrations.yaml@main
+    with:
+      ssh-host: example.com
+      wp-root: /home/piecode/site/public_html
+    secrets:
+      SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
+```
+
+---
+
+### Rollback Deploy
+
+Fully reverts the most recent release — component files **and** any database migrations that specific deploy applied — directly against the live tables. Triggered manually from the Actions tab (`workflow_dispatch`), reusing the same `SSH_PRIVATE_KEY` secret. Scoped strictly to the single most recent release: there is no "go back N releases" mode, since `releases/` only ever keeps the current release plus one prior (see **Atomic Deploy**'s pruning step).
+
+This is a different, narrower tool than **Rollback Migrations**: that one reverts whatever the DB's most recent migration batch happens to be, which can be several deploys behind if the deploys in between were code-only. Rollback Deploy always targets the exact deploy currently live, verified rather than inferred (see below) — use it when you want to undo the last deploy as a whole, not just undo a schema change.
+
+**How it works:**
+
+Connects over SSH and uploads a fresh copy of `rollback-deploy.sh` to a temporary directory on the server, runs it, then deletes that temporary directory regardless of outcome. Unlike Rollback Migrations, there's no repo checkout and nothing else to upload — `rollback-deploy.sh` reads the current release's own `components.txt`, `queries/`, and `full-sha.txt` directly from `releases/{sha}/migrations/` on the server, the exact files that release actually deployed, not whatever a fresh checkout of some branch happens to have.
+
+Before touching anything live, it runs two strict checks and refuses to proceed if either fails, rather than guessing:
+
+- **Directory check:** the live `wp-content/{type}/{name}` for every component is compared (full recursive content diff, not just a file listing) against that same component's copy inside the current release directory. Any mismatch — a manual edit, a previous rollback that failed partway — means the recorded "current release" can't be trusted, so it refuses rather than risk reverting the wrong thing.
+- **Database check:** the current release's exact full (40-character) git SHA — recorded in `full-sha.txt` at deploy time — is matched against the migrations table's `batch` column exactly. Release directories are named by the short SHA, which isn't matched by prefix against the full-SHA batch column — the same short-SHA collision risk `full-git-sha` exists to avoid elsewhere in this pipeline.
+
+Once both pass, it proceeds in the order you'd expect for an "undo the last deploy" operation:
+
+1. Enables maintenance mode — always, even if this release had no migrations, since live files are being swapped either way.
+2. Restores every component from the prior release directory, using the same two-pass stage-then-atomic-swap `swap.sh` uses for a forward deploy.
+3. If the current release applied any migrations (matched by its exact batch above), reverts them in reverse order — same Up/Down convention and partial-failure handling as Rollback Migrations.
+4. Disables maintenance mode.
+
+If a component exists in the current release but has no corresponding directory in the prior one (e.g. it was newly added in the deploy being undone), it refuses outright — there's nothing to automatically revert that component to. The same partial-failure safety as Rollback Migrations applies throughout: a failure after live changes begin leaves maintenance mode on for manual inspection rather than bringing the site back up mid-revert.
+
+**Inputs:**
+
+- `ssh-host`: SSH host. Required.
+- `wp-root`: Absolute path to the WordPress root on the server. Required. Must start with `/`.
+- `ssh-port`: SSH port. Optional, default is `22`.
+- `ssh-user`: SSH user. Optional, default is `piecode`.
+- `releases-dir`: Absolute path to the releases directory, used both to find the current/prior release and to stage this run's temporary working directory. Optional, defaults to a `releases` subdirectory inside `wp-root`.
+
+**Secrets:**
+
+- `SSH_PRIVATE_KEY`: SSH private key. Required — the same one used for Atomic Deploy.
+
+**Example:**
+
+```yaml
+name: Rollback Deploy
+on:
+  workflow_dispatch:
+jobs:
+  rollback_deploy:
+    uses: pie/.github/.github/workflows/rollback-deploy.yaml@main
     with:
       ssh-host: example.com
       wp-root: /home/piecode/site/public_html
@@ -422,6 +478,7 @@ These composite actions are used internally by the workflows above but can also 
 | `deploy-via-rsync` | Runs an optional Composer/npm build then deploys files via rsync |
 | `deploy-via-ftp` | Runs an optional Composer/npm build then deploys files via FTP |
 | `prepare-releases-dir` | Creates and protects the releases directory before anything is uploaded into it |
+| `rollback-deploy` | Fully reverts the most recent release — component files and any migrations it applied — over SSH |
 | `rollback-migrations` | Reverts the most recently applied batch of database migrations over SSH |
 | `swap-and-migrate` | Runs DB migrations and atomic component swap in a single SSH session |
 | `synchronise-remote` | Executes a synchronisation script on a remote server over SSH |

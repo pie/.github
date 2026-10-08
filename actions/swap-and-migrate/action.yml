@@ -110,6 +110,7 @@ runs:
       env:
         WP_ROOT: ${{ inputs.wp-root }}
         GIT_SHA: ${{ inputs.git-sha }}
+        FULL_GIT_SHA: ${{ inputs.full-git-sha }}
         DEPLOY_COMPONENTS: ${{ inputs.components }}
         RELEASES_DIR_INPUT: ${{ inputs.releases-dir }}
       run: |
@@ -124,6 +125,12 @@ runs:
         scp "$GITHUB_ACTION_PATH/scripts/swap.sh" "server:$MIGRATIONS_DIR/swap.sh"
         scp "$GITHUB_ACTION_PATH/scripts/migrate.sh" "server:$MIGRATIONS_DIR/migrate.sh"
         printf '%s' "$DEPLOY_COMPONENTS" | ssh server "cat > $MIGRATIONS_DIR_Q/components.txt"
+        # Recorded so a later full rollback of this exact release can look up
+        # its migrations batch by exact match — release directories are named
+        # by the short SHA, which isn't safe to match against the full-SHA
+        # batch column by prefix (the same collision risk FULL_GIT_SHA exists
+        # to avoid in the first place).
+        printf '%s' "$FULL_GIT_SHA" | ssh server "cat > $MIGRATIONS_DIR_Q/full-sha.txt"
 
     - name: Run atomic swap and migrations
       shell: bash
