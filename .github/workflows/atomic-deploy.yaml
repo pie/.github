@@ -47,6 +47,8 @@ concurrency:
 jobs:
   atomic_deploy:
     runs-on: ubuntu-latest
+    outputs:
+      short-sha: ${{ steps.sha.outputs.short_sha }}
     steps:
 
       - name: Compute short SHA
@@ -72,12 +74,16 @@ jobs:
           components: ${{inputs.components}}
           releases-dir: ${{inputs.releases-dir}}
 
+  verify_releases_protected:
+    needs: atomic_deploy
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
       - name: Verify releases/ is not publicly reachable
-        if: always()
         shell: bash
         env:
           SITE_URL: ${{ inputs.site-url }}
-          SHORT_SHA: ${{ steps.sha.outputs.short_sha }}
+          SHORT_SHA: ${{ needs.atomic_deploy.outputs.short-sha }}
           WP_ROOT: ${{ inputs.wp-root }}
           RELEASES_DIR_INPUT: ${{ inputs.releases-dir }}
         run: |
@@ -113,11 +119,12 @@ jobs:
               ;;
           esac
 
-          # Deliberately doesn't affect the deploy above, which has already
-          # fully completed by this point — there's nothing to roll back.
-          # This only determines whether the job is reported as failed, so
-          # an exposed releases/ directory surfaces via GitHub's own
-          # workflow-failure notification instead of going unnoticed.
+          # Runs as its own job (not a step inside atomic_deploy) precisely
+          # so a failure here never gets conflated with the deploy itself —
+          # atomic_deploy can show green while this job alone reports red.
+          # The overall workflow run still fails either way, so an exposed
+          # releases/ directory surfaces via GitHub's own workflow-failure
+          # notification instead of going unnoticed.
           CHECK_URL="${SITE_URL%/}/${RELATIVE_RELEASES_PATH}/${SHORT_SHA}/migrations/components.txt"
           set +e
           STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$CHECK_URL")

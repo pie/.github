@@ -38,7 +38,7 @@ The **Prepare Releases Directory** workflow (see below) must run first, before a
 4. Creates `releases/.htaccess` and tightens `releases/` to `chmod 700` if they aren't already there (see **Requirements** below — a defensive, idempotent repeat of what Prepare Releases Directory already did before any upload happened, not the first application of it), then rsyncs each component from the release directory to a hidden staging path and atomically renames it into place
 5. Prunes releases older than 1 prior
 
-If `site-url` is set, the `atomic_deploy` job then runs one more check after `swap.sh` finishes: fetching a file under `releases/` over real HTTP and failing the job if it's actually reachable — this doesn't touch the deploy, which has already completed by that point, but does surface as a failed run (see **Requirements**).
+If `site-url` is set, a separate `verify_releases_protected` job then runs after `atomic_deploy`: fetching a file under `releases/` over real HTTP and failing if it's actually reachable — deliberately its own job, not a step inside `atomic_deploy`, so a failed check shows up distinctly rather than making a successful deploy look like it failed. This doesn't touch the deploy, which has already completed by that point, but the overall workflow run still surfaces as failed (see **Requirements**).
 
 Failures are handled based on how far the deploy got:
 
@@ -105,7 +105,7 @@ Earlier versions of this workflow cloned every table to a new prefix, migrated t
      ```nginx
      location ~ ^/releases/ { deny all; }
      ```
-3. **Automatic, every deploy, if `site-url` is set:** a final workflow step fetches a known file under `releases/` over real HTTP and fails the job if it's actually reachable — see **Inputs** below. This is what actually confirms (1) and (2) are working, rather than trusting either blindly; it doesn't affect the deploy itself, which has already fully completed by the time this runs.
+3. **Automatic, every deploy, if `site-url` is set:** a separate `verify_releases_protected` job, running after `atomic_deploy`, fetches a known file under `releases/` over real HTTP and fails if it's actually reachable — see **Inputs** below. This is what actually confirms (1) and (2) are working, rather than trusting either blindly; it doesn't affect the deploy itself, which has already fully completed by the time this runs, and it's a separate job specifically so a failure here is distinguishable in the Actions UI from the deploy itself failing.
 
 **Inputs:**
 
