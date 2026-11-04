@@ -6,6 +6,9 @@
 #               than the same file on #5's branch (a new file: none). Prints
 #               the counts, before -> after, for REVIEW-REQUEST.
 #   YAML:       every changed workflow and action.yml parses.
+#   No scp:     no action or workflow runs scp. WP Engine's SSH gateway has
+#               no SFTP subsystem, which scp (OpenSSH 9+) uses by default;
+#               uploads go over ssh with `cat >` instead.
 #   actionlint: every changed workflow, if actionlint is installed (or
 #               ACTIONLINT=/path/to/actionlint). Otherwise reported NOT RUN:
 #               the script still passes (exit 0, and run.sh prints PASS), so
@@ -56,6 +59,15 @@ for f in "${CHANGED[@]}"; do
     [ -f "$GIT_REPO/$f" ] || continue
     check "$f parses" python3 -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1]))' "$GIT_REPO/$f"
 done
+
+case_start "no scp in actions or workflows"
+no_scp() {
+    local hits
+    hits="$(grep -rnE '(^|[^[:alnum:]_#-])scp[[:space:]]' "$GIT_REPO/actions" "$GIT_REPO/.github/workflows" \
+        --include='*.yml' --include='*.yaml' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' || true)"
+    [ -z "$hits" ] || { echo "$hits" | sed 's/^/       /'; return 1; }
+}
+check "no action or workflow runs scp" no_scp
 
 case_start "actionlint on changed workflows"
 AL="${ACTIONLINT:-$(command -v actionlint || true)}"

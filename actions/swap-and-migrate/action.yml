@@ -42,10 +42,9 @@ runs:
         GIT_SHA: ${{ inputs.git-sha }}
         FULL_GIT_SHA: ${{ inputs.full-git-sha }}
       run: |
-        # git-sha/full-git-sha feed into MIGRATIONS_DIR, used unquoted-for-
-        # remote-shell in the scp destinations below — same risk as
-        # wp-root/releases-dir. Enforcing the documented hex format (rather
-        # than trying to quote for scp's own remote-side parsing) closes it.
+        # git-sha/full-git-sha feed into MIGRATIONS_DIR, used in the remote
+        # paths below, like wp-root/releases-dir. Enforcing the documented
+        # hex format keeps those paths safe on the remote shell.
         if [[ ! "$GIT_SHA" =~ ^[0-9a-f]{8}$ ]]; then
           echo "Error: git-sha must be exactly 8 lowercase hex characters." >&2
           exit 1
@@ -61,11 +60,9 @@ runs:
           exit 1
         fi
 
-        # The "Upload swap scripts to server" step's scp calls below use a
-        # path derived from these inputs against a remote-shell-interpreting
-        # destination — %q-quoting (used for the ssh commands here) only
-        # protects the local shell, not scp's own remote-side parsing.
-        # Keeping to a safe character set closes that off regardless.
+        # The "Upload swap scripts to server" step below writes to paths
+        # derived from these inputs on the remote shell. They're %q-quoted
+        # there; keeping to a safe character set is a second guard.
         if [[ ! "$WP_ROOT" =~ ^/[A-Za-z0-9/_.-]*$ ]]; then
           echo "Error: wp-root must contain only letters, digits, and /_.- characters." >&2
           exit 1
@@ -131,8 +128,8 @@ runs:
         MIGRATIONS_DIR="$RELEASES_DIR/$GIT_SHA/migrations"
         MIGRATIONS_DIR_Q=$(printf '%q' "$MIGRATIONS_DIR")
         ssh server "mkdir -p $MIGRATIONS_DIR_Q"
-        scp "$GITHUB_ACTION_PATH/scripts/swap.sh" "server:$MIGRATIONS_DIR/swap.sh"
-        scp "$GITHUB_ACTION_PATH/scripts/migrate.sh" "server:$MIGRATIONS_DIR/migrate.sh"
+        ssh server "cat > $MIGRATIONS_DIR_Q/swap.sh" < "$GITHUB_ACTION_PATH/scripts/swap.sh"
+        ssh server "cat > $MIGRATIONS_DIR_Q/migrate.sh" < "$GITHUB_ACTION_PATH/scripts/migrate.sh"
         printf '%s' "$DEPLOY_COMPONENTS" | ssh server "cat > $MIGRATIONS_DIR_Q/components.txt"
         # Recorded so a later full rollback of this exact release can look up
         # its migrations batch by exact match — release directories are named

@@ -27,11 +27,9 @@ runs:
           exit 1
         fi
 
-        # The "Upload rollback-deploy script" step's scp call below uses a
-        # path derived from these inputs against a remote-shell-interpreting
-        # destination — %q-quoting (used for the ssh commands here) only
-        # protects the local shell, not scp's own remote-side parsing.
-        # Keeping to a safe character set closes that off regardless.
+        # The "Upload rollback-deploy script" step below writes to a path
+        # derived from these inputs on the remote shell. It's %q-quoted
+        # there; keeping to a safe character set is a second guard.
         if [[ ! "$WP_ROOT" =~ ^/[A-Za-z0-9/_.-]*$ ]]; then
           echo "Error: wp-root must contain only letters, digits, and /_.- characters." >&2
           exit 1
@@ -98,7 +96,7 @@ runs:
 
         ROLLBACK_DIR_Q=$(printf '%q' "$ROLLBACK_DIR")
         ssh server "mkdir -p $ROLLBACK_DIR_Q"
-        scp "$GITHUB_ACTION_PATH/scripts/rollback-deploy.sh" "server:$ROLLBACK_DIR/rollback-deploy.sh"
+        ssh server "cat > $ROLLBACK_DIR_Q/rollback-deploy.sh" < "$GITHUB_ACTION_PATH/scripts/rollback-deploy.sh"
 
     - name: Run rollback-deploy
       shell: bash
