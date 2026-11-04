@@ -11,7 +11,9 @@ KEEP_SANDBOX=1 tests/atomic/test-...sh         # keep the throwaway server direc
 CALLERS_DIR=<folder of callers' workflow files> tests/deploy-type/test-equivalence.sh
 ```
 
-Needs bash 5, git (with `origin/main` and `origin/feature/add-symlink-and-sql-flows` fetched),
+Needs bash 5, git (with the baselines `c306c5d`, main before #5, and `4b3ef1b`, #5 before the
+deploy-type opt-in; if `4b3ef1b` is missing, `git fetch origin refs/pull/5/head`; override with
+`BASE_MAIN` / `BASE_PR5`),
 python3 with PyYAML, rsync, jq, GNU coreutils/find, and shellcheck. actionlint is optional: set
 `ACTIONLINT=/path/to/actionlint` or put it on `PATH`; without it the static check says NOT RUN.
 
@@ -50,7 +52,7 @@ letters, digits and `/_.-`, because the actions reject anything else as `wp-root
 
 `TEST_REPO_ROOT=<a checkout>` runs the workflow tests against that checkout instead of this one,
 for example an export of the base branch to see a test fail before the fix
-(`git archive origin/feature/add-symlink-and-sql-flows | tar -x -C <dir>`). Add
+(`git archive 4b3ef1b | tar -x -C <dir>`). Add
 `TEST_ALLOW_UNKNOWN_INPUTS=1` when that code doesn't declare `deploy-type`. The equivalence and
 static tests always compare git refs with this working tree.
 

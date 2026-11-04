@@ -7,9 +7,10 @@
 #             text for text. Allowed differences: the deploy-type input, its
 #             pass-through, and the one validation step (a step whose name
 #             contains "deploy-type"), which must do nothing for a valid value.
+#             origin/main here means $BASE_MAIN: main before #5 (lib/testlib.sh).
 #             Checked with deploy-type: standard passed, and not passed at all.
 #   atomic    The same extraction with deploy-type: atomic equals #5's branch
-#             (origin/feature/add-symlink-and-sql-flows) for the same inputs. A
+#             before the opt-in ($BASE_PR5, 4b3ef1b) for the same inputs. A
 #             step whose run: text differs is accepted only if running both
 #             versions (with and without a .rsyncignore) has the same effect
 #             and neither calls anything external (Ada's approval note 2).
@@ -40,7 +41,7 @@ compare() {  # compare <description> <base ref> <callers file> [gha compare args
     fi
 }
 
-case_start "standard == origin/main, for each caller input set"
+case_start "standard == $BASE_MAIN (main before #5), for each caller input set"
 compare "deploy-type: standard passed" "$BASE_MAIN" "$FIXTURES" --deploy-type standard --expect-validation
 compare "deploy-type not passed (default)" "$BASE_MAIN" "$FIXTURES" --expect-validation
 

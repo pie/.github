@@ -16,8 +16,11 @@ REPO_ROOT="${TEST_REPO_ROOT:-$(cd "$TESTS_DIR/.." && pwd)}"
 # shellcheck disable=SC2034 # used by the scripts that source this
 GIT_REPO="$(cd "$TESTS_DIR/.." && pwd)"
 GHA=(python3 "$TESTS_DIR/lib/gha.py")
-BASE_MAIN="${BASE_MAIN:-origin/main}"
-BASE_PR5="${BASE_PR5:-origin/feature/add-symlink-and-sql-flows}"
+# Fixed baselines, so the comparisons still mean something once #5 is in main:
+# main before #5 (#8, c306c5d), and #5's branch before the deploy-type opt-in
+# (#10). If 4b3ef1b is missing locally: git fetch origin refs/pull/5/head
+BASE_MAIN="${BASE_MAIN:-c306c5d}"
+BASE_PR5="${BASE_PR5:-4b3ef1b}"
 COMPONENTS=$'plugins:alpha\nthemes:beta'
 # shellcheck disable=SC2034
 TAB=$'\t'
