@@ -103,7 +103,8 @@ MIGRATIONS_TABLE="${TARGET_PREFIX}${REPO_SLUG}_migrations"
 # components.txt; selecting it as current or prior would mean inspecting or
 # restoring to a release that was never actually live. deploy-complete.txt
 # is only written once swap.sh's migrations and component swap both
-# succeeded — same marker swap.sh's own pruning step now requires.
+# succeeded — same marker swap.sh's own pruning step now requires — and
+# Step 5 below removes it from a release this script rolls back.
 readarray -t RELEASE_DIRS < <(
     find "$RELEASES_DIR" -maxdepth 1 -mindepth 1 -type d -printf '%T@ %p\n' 2>/dev/null \
         | sort -rn | cut -d' ' -f2- \
@@ -167,6 +168,23 @@ done
 # Step 2: Verify live files actually match the recorded current release, and
 # that the prior release has a copy of every component to restore
 # ==============================================================================
+
+# A .previous with no live directory means an earlier swap.sh or rollback
+# died between its two renames (live -> .previous, staging -> live):
+# .previous is the only copy of what was live, so it's put back first. Done
+# before the comparison below, which would otherwise refuse on the missing
+# live directory. Where both exist, Step 5 removes the stale .previous.
+for COMPONENT in "${COMPONENTS[@]}"; do
+    TYPE="${COMPONENT%%:*}"
+    NAME="${COMPONENT##*:}"
+    LIVE_PATH="$WP_ROOT/wp-content/$TYPE/$NAME"
+    OLD_PATH="${LIVE_PATH}.previous"
+
+    if { [ -e "$OLD_PATH" ] || [ -L "$OLD_PATH" ]; } && [ ! -e "$LIVE_PATH" ] && [ ! -L "$LIVE_PATH" ]; then
+        mv "$OLD_PATH" "$LIVE_PATH"
+        echo "::warning::$LIVE_PATH was missing and $OLD_PATH existed — an earlier run stopped between its two renames. Restored $OLD_PATH to $LIVE_PATH before checking it."
+    fi
+done
 
 log "Verifying live files match the recorded current release"
 for COMPONENT in "${COMPONENTS[@]}"; do
@@ -324,6 +342,15 @@ for COMPONENT in "${COMPONENTS[@]}"; do
 done
 
 log "Component files reverted to release $PRIOR_SHA"
+
+# $CURRENT_SHA is no longer live, so it stops counting as a completed
+# release: Step 1 here and swap.sh's pruning only count releases with
+# deploy-complete.txt. Without this, the next deploy's prune keeps
+# $CURRENT_SHA as "prior" and deletes $PRIOR_SHA, the release now live, and a
+# second rollback would target $CURRENT_SHA. Done before the migrations are
+# reverted, so a failure there still leaves it uncounted.
+rm -f "$CURRENT_RELEASE_DIR/migrations/deploy-complete.txt"
+log "Removed deploy-complete.txt from release $CURRENT_SHA — it is no longer a completed release"
 
 # ==============================================================================
 # Step 6: Revert this release's migrations, if any — reads the SQL files from

@@ -30,18 +30,23 @@ Deploys components to a release directory keyed by the short (8-character) git c
 
 **How it works:**
 
-The **Prepare Releases Directory** workflow (see below) must run first, before anything is rsynced anywhere — it creates and protects `releases/` while it's still empty, so the protection in step 4 below isn't the first time it's applied. Rsync jobs then deploy each component to a release directory keyed by the short SHA (see the `setup` workflow's `short-sha` output). Once all jobs complete, the `atomic_deploy` job SSH's in and runs `swap.sh`, which:
+The **Prepare Releases Directory** workflow (see below) must run first, before anything is rsynced anywhere — it creates and protects `releases/` while it's still empty, so the protection in step 4 below isn't the first time it's applied. Rsync jobs then deploy each component to a release directory keyed by the short SHA (see the `setup` workflow's `short-sha` output). Each of those jobs calls **Deploy via Rsync** with `deploy-type: atomic`, which creates the release directory with `mkdir -p` before uploading (it doesn't exist yet) and passes the inputs to rsync as quoted environment variables; without it, the upload fails, because the release directory doesn't exist yet and a standard deploy doesn't create it. Once all jobs complete, the `atomic_deploy` job uploads `swap.sh` and `components.txt` to the release directory, checks `releases/` isn't publicly reachable (when `site-url` is set; see below), then SSH's in and runs `swap.sh`, which:
 
 1. Verifies WP-CLI can reach the database
 2. Checks for pending SQL migrations
 3. If any: enables maintenance mode → dry-runs the pending migrations against structure-only clones of the live tables (no data, dropped immediately after) and bails out with maintenance mode deactivated if any fail → runs migrations directly against the live tables
-4. Creates `releases/.htaccess` and tightens `releases/` to `chmod 700` if they aren't already there (see **Requirements** below — a defensive, idempotent repeat of what Prepare Releases Directory already did before any upload happened, not the first application of it), then rsyncs each component from the release directory to a hidden staging path and atomically renames it into place
+4. Creates `releases/.htaccess` and tightens `releases/` to `chmod 700` if they aren't already there (see **Requirements** below — a defensive, idempotent repeat of what Prepare Releases Directory already did before any upload happened, not the first application of it), then rsyncs each component from the release directory to a hidden staging path and atomically renames it into place. If a component's live directory is missing but its `.previous` copy exists (an earlier run stopped between its two renames), that copy is moved back to live first, with a warning in the log
 5. Prunes releases older than 1 prior
 
-If `site-url` is set, a separate `verify_releases_protected` job then runs after `atomic_deploy`: fetching a file under `releases/` over real HTTP and failing if it's actually reachable — deliberately its own job, not a step inside `atomic_deploy`, so a failed check shows up distinctly rather than making a successful deploy look like it failed. This doesn't touch the deploy, which has already completed by that point, but the overall workflow run still surfaces as failed (see **Requirements**).
+If `site-url` is set, `atomic_deploy` fetches this release's `components.txt` under `releases/` over real HTTP after uploading it and before running `swap.sh`:
+
+- **HTTP 200 (exposed):** the deploy stops there, before maintenance mode, migrations or any change to a live directory. Every deploy stops there until `releases/` is protected, usually by adding the **Prepare Releases Directory** job: `swap.sh`'s own `.htaccess` never gets to run.
+- **No response (unknown)**, e.g. a curl, DNS or TLS failure, or no answer within 30 seconds: a warning is logged and the deploy carries on, so a fix can still go out to a site that's having trouble. A separate `verify_releases_protected` job then fails the run once the deploy has succeeded, so the unconfirmed check isn't missed; it's its own job so the deploy itself still shows as succeeded.
+- **Any other status (safe):** the deploy carries on.
 
 Failures are handled based on how far the deploy got:
 
+- **Before anything changes** (`releases/` is publicly reachable) — the deploy stops before `swap.sh` runs; add the **Prepare Releases Directory** job, or fix the host-side protection (see **Requirements**), and re-run.
 - **Before migrations start** (dry run failed) — maintenance mode is deactivated automatically and the site recovers on the previous version, *unless* it was already active before this run started (e.g. left on by an earlier failed deploy still awaiting manual recovery) — in that case it's left as-is rather than clearing a state this run didn't set, and the log says so.
 - **After migrations start** — maintenance mode stays on; there is no clone or backup to recover from automatically. Manual verification instructions are printed in the run's log output.
 
@@ -105,7 +110,7 @@ Earlier versions of this workflow cloned every table to a new prefix, migrated t
      ```nginx
      location ~ ^/releases/ { deny all; }
      ```
-3. **Automatic, every deploy, if `site-url` is set:** a separate `verify_releases_protected` job, running after `atomic_deploy`, fetches a known file under `releases/` over real HTTP and fails if it's actually reachable — see **Inputs** below. This is what actually confirms (1) and (2) are working, rather than trusting either blindly; it doesn't affect the deploy itself, which has already fully completed by the time this runs, and it's a separate job specifically so a failure here is distinguishable in the Actions UI from the deploy itself failing.
+3. **Automatic, every deploy, if `site-url` is set:** before `swap.sh` runs, `atomic_deploy` fetches a known file under `releases/` over real HTTP and stops the deploy if it's actually reachable; if the site can't be reached at all, the deploy carries on and the run is marked failed at the end (see **How it works** above and **Inputs** below). This is what actually confirms (1) and (2) are working, rather than trusting either blindly.
 
 **Inputs:**
 
@@ -114,7 +119,7 @@ Earlier versions of this workflow cloned every table to a new prefix, migrated t
 - `components`: Newline-separated list of components in `type:name` format. Required. The rsync job for each one must deploy to `releases/{sha}/{type}/{name}` (not just `{name}`) — otherwise a plugin and a theme sharing the same name would resolve to the same release path and clobber each other.
 - `ssh-port`: SSH port. Optional, default is `22`.
 - `ssh-user`: SSH user. Optional, default is `piecode`.
-- `site-url`: Public URL of the site (e.g. `https://example.com`). Optional, but strongly recommended — enables the post-deploy `releases/` exposure check described above. The check is skipped entirely when this is omitted.
+- `site-url`: Public URL of the site (e.g. `https://example.com`). Optional, but strongly recommended — enables the pre-swap `releases/` exposure check described above. The check is skipped entirely when this is omitted.
 
 **Secrets:**
 
@@ -147,6 +152,7 @@ jobs:
     with:
       ssh-host: example.com
       destination-path: /home/piecode/site/public_html/releases/${{ needs.setup.outputs.short-sha }}/plugins/my-plugin
+      deploy-type: atomic
       npm: true
     secrets:
       SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
@@ -157,6 +163,7 @@ jobs:
     with:
       ssh-host: example.com
       destination-path: /home/piecode/site/public_html/releases/${{ needs.setup.outputs.short-sha }}/themes/my-theme
+      deploy-type: atomic
     secrets:
       SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
 
@@ -167,6 +174,7 @@ jobs:
       ssh-host: example.com
       source-path: migrations/
       destination-path: /home/piecode/site/public_html/releases/${{ needs.setup.outputs.short-sha }}/migrations
+      deploy-type: atomic
     secrets:
       SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
 
@@ -208,7 +216,7 @@ If migrations ran, rolling back the code alone leaves it running against the mig
 
 If the workflow run's log shows the site is still in maintenance mode, the deploy failed after migrations had already started. Before deactivating maintenance mode, verify which migrations were recorded as applied and that component directories are in a consistent state — the log output includes the exact commands to run.
 
-**Cleaning up after a manual recovery:** the `releases/{sha}/` directory for a failed deploy (its component copies, `swap.sh`, `migrate.sh`, `queries/`) is only pruned by a *later successful* deploy's own pruning step (Step 6) — a run that stops for manual recovery never reaches it. In practice this self-heals within a deploy or two once you're back to shipping normally: pruning only ever keeps a release as "prior" once it has `deploy-complete.txt` (written only on full success), so a failed release is pruned away the same as any older one rather than occupying that slot. If you're not deploying again soon and want it gone immediately, it's safe to `rm -rf releases/{sha}/` yourself.
+**Cleaning up after a manual recovery:** the `releases/{sha}/` directory for a failed deploy (its component copies, `swap.sh`, `migrate.sh`, `queries/`) is only pruned by a *later successful* deploy's own pruning step (Step 6) — a run that stops for manual recovery never reaches it. In practice this self-heals within a deploy or two once you're back to shipping normally: pruning only ever keeps a release as "prior" once it has `deploy-complete.txt` (written only on full success, and removed again by Rollback Deploy from a release it rolls back), so a failed release is pruned away the same as any older one rather than occupying that slot. If you're not deploying again soon and want it gone immediately, it's safe to `rm -rf releases/{sha}/` yourself.
 
 ---
 
@@ -270,9 +278,11 @@ This is a different, narrower tool than **Rollback Migrations**: that one revert
 
 Connects over SSH and uploads a fresh copy of `rollback-deploy.sh` to a temporary directory on the server, runs it, then deletes that temporary directory regardless of outcome. Unlike Rollback Migrations, there's no repo checkout and nothing else to upload — `rollback-deploy.sh` reads the current release's own `components.txt`, `queries/`, and `full-sha.txt` directly from `releases/{sha}/migrations/` on the server, the exact files that release actually deployed, not whatever a fresh checkout of some branch happens to have.
 
-Only release directories containing `deploy-complete.txt` are considered when identifying "current" and "prior" — not just `components.txt`, which is written before `swap.sh` even runs and so only proves a release's files were uploaded, not that it ever actually went live. `deploy-complete.txt` is written by `swap.sh` only once that deploy's migrations (if any) and component swap have both fully succeeded; a release whose dry run or swap failed partway never gets one, so it's skipped entirely rather than risk restoring to (or computing a migrations batch from) a release that was never actually live.
+Only release directories containing `deploy-complete.txt` are considered when identifying "current" and "prior" — not just `components.txt`, which is written before `swap.sh` even runs and so only proves a release's files were uploaded, not that it ever actually went live. `deploy-complete.txt` is written by `swap.sh` only once that deploy's migrations (if any) and component swap have both fully succeeded; a release whose dry run or swap failed partway never gets one, so it's skipped entirely rather than risk restoring to (or computing a migrations batch from) a release that was never actually live. Once the files are restored, Rollback Deploy removes `deploy-complete.txt` from the release it rolled back, which is no longer live: the next deploy's pruning then keeps the restored release as "prior" (and removes the rolled-back one), and a later rollback targets the restored release.
 
-Before touching anything live, it runs two further strict checks and refuses to proceed if either fails, rather than guessing:
+If a component's live directory is missing but its `.previous` copy exists (an earlier deploy or rollback stopped between its two renames), that copy is moved back to live first, with a warning in the log, so the checks below see it.
+
+Before touching anything else live, it runs two further strict checks and refuses to proceed if either fails, rather than guessing:
 
 - **Directory check:** the live `wp-content/{type}/{name}` for every component is compared (full recursive content diff, not just a file listing) against that same component's copy inside the current release directory. Any mismatch — a manual edit, a previous rollback that failed partway — means the recorded "current release" can't be trusted, so it refuses rather than risk reverting the wrong thing.
 - **Database check:** the current release's exact full (40-character) git SHA — recorded in `full-sha.txt` at deploy time — is matched against the migrations table's `batch` column exactly. Release directories are named by the short SHA, which isn't matched by prefix against the full-SHA batch column — the same short-SHA collision risk `full-git-sha` exists to avoid elsewhere in this pipeline.
@@ -342,6 +352,7 @@ Deploys to a remote server using rsync, supporting both SSH key and password-bas
 - `npm`: Run `npm install` and build before deploying. Optional, default is `false`.
 - `node_version`: Node.js version for the build. Optional, default is `18`.
 - `npm-run-command`: Command to run after `npm install`. Optional, default is `npm run build`.
+- `deploy-type`: `standard` or `atomic`. Optional, default is `standard`, which deploys exactly as this workflow always has. `atomic` is for the upload jobs of **Atomic Deploy**: it creates `destination-path` with `mkdir -p` before uploading and passes the inputs to npm and rsync as quoted environment variables, so `source-path` is a single path (no glob expansion) and `npm-run-command` is a single command (no `&&` chaining). Any other value fails the job before anything is built or uploaded.
 
 **Secrets:**
 

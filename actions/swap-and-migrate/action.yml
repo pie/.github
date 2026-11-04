@@ -21,6 +21,15 @@ inputs:
     description: "Absolute path to the releases directory on the server. Defaults to a 'releases' subdirectory inside wp-root when not set."
     required: false
     default: ""
+  site-url:
+    description: "Public URL of the site (e.g. https://example.com). When set, releases/ is checked over HTTP after the upload and before swap.sh runs: if it's reachable, the deploy stops before anything is swapped or migrated. Skipped when empty."
+    required: false
+    default: ""
+
+outputs:
+  releases-check:
+    description: "Result of the releases/ exposure check: skipped, safe or unknown (the probe couldn't reach the site). An exposed result fails this action instead."
+    value: ${{ steps.releases-check.outputs.result }}
 
 runs:
   using: composite
@@ -131,6 +140,19 @@ runs:
         # batch column by prefix (the same collision risk FULL_GIT_SHA exists
         # to avoid in the first place).
         printf '%s' "$FULL_GIT_SHA" | ssh server "cat > $MIGRATIONS_DIR_Q/full-sha.txt"
+
+    # Between the upload (which writes the components.txt this probes) and
+    # swap.sh, so an exposed releases/ stops the deploy before maintenance
+    # mode, migrations or any rename of a live directory.
+    - name: Check releases/ is not publicly reachable
+      id: releases-check
+      shell: bash
+      env:
+        SITE_URL: ${{ inputs.site-url }}
+        SHORT_SHA: ${{ inputs.git-sha }}
+        WP_ROOT: ${{ inputs.wp-root }}
+        RELEASES_DIR_INPUT: ${{ inputs.releases-dir }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/check-releases-exposure.sh"
 
     - name: Run atomic swap and migrations
       shell: bash
