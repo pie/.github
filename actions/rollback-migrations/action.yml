@@ -1,0 +1,132 @@
+name: Rollback Migrations
+description: "Reverts the most recently applied batch of database migrations directly against the live tables"
+
+inputs:
+  wp-root:
+    description: "Absolute path to the WordPress root on the remote server (must start with /)"
+    required: true
+  repo-name:
+    description: "Repository name used to derive the migrations tracking table name"
+    required: true
+  releases-dir:
+    description: "Absolute path to a writable directory on the server, used only to stage a temporary working directory for this run — cleaned up afterward regardless of outcome. Defaults to a 'releases' subdirectory inside wp-root when not set."
+    required: false
+    default: ""
+  migrations-path:
+    description: "Local path (relative to the checked-out repo) containing the migrations directory, i.e. the parent of migrations/queries"
+    required: false
+    default: "migrations"
+
+runs:
+  using: composite
+  steps:
+    - name: Validate inputs
+      shell: bash
+      env:
+        WP_ROOT: ${{ inputs.wp-root }}
+        RELEASES_DIR_INPUT: ${{ inputs.releases-dir }}
+      run: |
+        if [[ "$WP_ROOT" != '/'* ]] || [ "$WP_ROOT" = "/" ]; then
+          echo "Error: wp-root must be an absolute path starting with / and not the filesystem root itself (e.g. /home/piecode/site/public_html)." >&2
+          exit 1
+        fi
+
+        # The "Upload rollback script and migrations" step's scp/rsync calls
+        # below use a path derived from these inputs against a remote-shell-
+        # interpreting destination — %q-quoting (used for the ssh commands
+        # here) only protects the local shell, not scp/rsync's own
+        # remote-side parsing. Keeping to a safe character set closes that
+        # off regardless.
+        if [[ ! "$WP_ROOT" =~ ^/[A-Za-z0-9/_.-]*$ ]]; then
+          echo "Error: wp-root must contain only letters, digits, and /_.- characters." >&2
+          exit 1
+        fi
+
+        # The character whitelist above still permits ".." — e.g. /var/../releases
+        # — which resolves outside wp-root entirely rather than being rejected.
+        if [[ "$WP_ROOT" == *".."* ]]; then
+          echo "Error: wp-root must not contain '..' path components." >&2
+          exit 1
+        fi
+
+        if [ -n "$RELEASES_DIR_INPUT" ] && { [[ "$RELEASES_DIR_INPUT" != '/'* ]] || [ "$RELEASES_DIR_INPUT" = "/" ]; }; then
+          echo "Error: releases-dir must be an absolute path starting with / and not the filesystem root itself (e.g. /home/piecode/site/public_html/releases)." >&2
+          exit 1
+        fi
+
+        if [ -n "$RELEASES_DIR_INPUT" ] && [[ ! "$RELEASES_DIR_INPUT" =~ ^/[A-Za-z0-9/_.-]*$ ]]; then
+          echo "Error: releases-dir must contain only letters, digits, and /_.- characters." >&2
+          exit 1
+        fi
+
+        if [ -n "$RELEASES_DIR_INPUT" ] && [[ "$RELEASES_DIR_INPUT" == *".."* ]]; then
+          echo "Error: releases-dir must not contain '..' path components." >&2
+          exit 1
+        fi
+
+        # Trailing-slash-normalized: releases-dir == wp-root would deny/chmod
+        # the entire WordPress root, not just a releases subdirectory.
+        if [ -n "$RELEASES_DIR_INPUT" ] && [ "${RELEASES_DIR_INPUT%/}" = "${WP_ROOT%/}" ]; then
+          echo "Error: releases-dir must not be the same path as wp-root." >&2
+          exit 1
+        fi
+
+        # Belt and braces, and kept consistent with the other actions that
+        # accept releases-dir: requiring its final path segment to actually
+        # be "releases" rules out wp-root, "/", or any unrelated directory,
+        # however it was misconfigured.
+        if [ -n "$RELEASES_DIR_INPUT" ] && [ "$(basename "${RELEASES_DIR_INPUT%/}")" != "releases" ]; then
+          echo "Error: releases-dir must be a directory named 'releases' (e.g. /home/piecode/site/public_html/releases)." >&2
+          exit 1
+        fi
+
+    - name: Upload rollback script and migrations
+      shell: bash
+      env:
+        WP_ROOT: ${{ inputs.wp-root }}
+        RELEASES_DIR_INPUT: ${{ inputs.releases-dir }}
+        MIGRATIONS_PATH: ${{ inputs.migrations-path }}
+      run: |
+        if [ -n "$RELEASES_DIR_INPUT" ]; then
+          RELEASES_DIR="$RELEASES_DIR_INPUT"
+        else
+          RELEASES_DIR="$WP_ROOT/releases"
+        fi
+        # A dot-prefixed, per-run directory under releases/ — reuses the deny
+        # rule already required for releases/ rather than needing a new one,
+        # and is unique enough to never collide with a real deploy's SHA.
+        # Cleaned up in the final step regardless of how the run goes.
+        ROLLBACK_DIR="$RELEASES_DIR/.rollback-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+        echo "ROLLBACK_DIR=$ROLLBACK_DIR" >> "$GITHUB_ENV"
+
+        # Must exist locally — silently uploading nothing here would leave
+        # rollback.sh unable to find any Down section for an applied
+        # migration, so it'd skip every one with a warning and still report
+        # the batch as successfully rolled back.
+        if [ ! -d "$MIGRATIONS_PATH/queries" ]; then
+          echo "Error: $MIGRATIONS_PATH/queries not found — check the migrations-path input." >&2
+          exit 1
+        fi
+
+        ROLLBACK_DIR_Q=$(printf '%q' "$ROLLBACK_DIR")
+        ssh server "mkdir -p $ROLLBACK_DIR_Q/queries"
+        scp "$GITHUB_ACTION_PATH/scripts/rollback.sh" "server:$ROLLBACK_DIR/rollback.sh"
+        rsync -a "$MIGRATIONS_PATH/queries/" "server:$ROLLBACK_DIR/queries/"
+
+    - name: Run rollback
+      shell: bash
+      env:
+        WP_ROOT: ${{ inputs.wp-root }}
+        REPO_NAME: ${{ inputs.repo-name }}
+      run: |
+        WP_ROOT_Q=$(printf '%q' "$WP_ROOT")
+        REPO_NAME_Q=$(printf '%q' "$REPO_NAME")
+        ROLLBACK_SCRIPT_Q=$(printf '%q' "$ROLLBACK_DIR/rollback.sh")
+        ssh server "env WP_ROOT=$WP_ROOT_Q REPO_NAME=$REPO_NAME_Q bash $ROLLBACK_SCRIPT_Q"
+
+    - name: Clean up remote temporary directory
+      if: always()
+      shell: bash
+      run: |
+        ROLLBACK_DIR_Q=$(printf '%q' "$ROLLBACK_DIR")
+        ssh server "rm -rf $ROLLBACK_DIR_Q" || true

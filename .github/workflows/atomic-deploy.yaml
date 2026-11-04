@@ -1,0 +1,93 @@
+name: Atomic Deploy
+
+on:
+  workflow_call:
+    inputs:
+      ssh-host:
+        type: string
+        description: "SSH host to connect to"
+        required: true
+      ssh-user:
+        type: string
+        description: "SSH user to connect with"
+        required: false
+        default: piecode
+      ssh-port:
+        type: number
+        description: "SSH port to connect to"
+        required: false
+        default: 22
+      wp-root:
+        type: string
+        description: "Absolute path to the WordPress root on the remote server (must start with /)"
+        required: true
+      components:
+        type: string
+        description: "Newline-separated list of components to deploy, one per line in type:name format (e.g. plugins:my-plugin)"
+        required: true
+      releases-dir:
+        type: string
+        description: "Absolute path to the releases directory on the server. Defaults to a 'releases' subdirectory inside wp-root when not set."
+        required: false
+        default: ""
+      site-url:
+        type: string
+        description: "Public URL of the site (e.g. https://example.com). When set, releases/ is checked over HTTP before the swap: if it's reachable the deploy stops before anything changes; if the site can't be reached the deploy carries on and the run is marked failed at the end — see README Requirements. Optional, but strongly recommended; the check is skipped entirely when omitted."
+        required: false
+        default: ""
+    secrets:
+      SSH_PRIVATE_KEY:
+        description: "SSH private key"
+        required: true
+
+concurrency:
+  group: atomic-deploy-${{ inputs.ssh-host }}-${{ inputs.wp-root }}
+  cancel-in-progress: false
+
+jobs:
+  atomic_deploy:
+    runs-on: ubuntu-latest
+    outputs:
+      releases-check: ${{ steps.swap.outputs.releases-check }}
+    steps:
+
+      - name: Compute short SHA
+        id: sha
+        shell: bash
+        run: echo "short_sha=${GITHUB_SHA:0:8}" >> $GITHUB_OUTPUT
+
+      - uses: pie/.github/actions/add-ssh-config@main
+        name: Add SSH key to runner
+        with:
+          ssh-user: ${{inputs.ssh-user}}
+          ssh-port: ${{inputs.ssh-port}}
+          ssh-host: ${{inputs.ssh-host}}
+          ssh-key: ${{secrets.SSH_PRIVATE_KEY}}
+
+      - uses: pie/.github/actions/swap-and-migrate@main
+        id: swap
+        name: Run atomic swap and migrations
+        with:
+          wp-root: ${{inputs.wp-root}}
+          git-sha: ${{ steps.sha.outputs.short_sha }}
+          full-git-sha: ${{ github.sha }}
+          repo-name: ${{github.event.repository.name}}
+          components: ${{inputs.components}}
+          releases-dir: ${{inputs.releases-dir}}
+          site-url: ${{inputs.site-url}}
+
+  # Runs only when atomic_deploy succeeded and swap-and-migrate's pre-swap
+  # releases/ check couldn't reach the site (result "unknown"): it marks the
+  # run failed so the unconfirmed exposure isn't missed. (If atomic_deploy
+  # failed, the run has failed already.) Its own job, so the deploy itself
+  # still shows as succeeded.
+  verify_releases_protected:
+    needs: atomic_deploy
+    if: needs.atomic_deploy.outputs.releases-check == 'unknown'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail the run — releases/ exposure not confirmed
+        shell: bash
+        run: |
+          echo "::error::The deploy completed, but the releases/ exposure check before the swap couldn't reach the site (see the warning in the atomic_deploy job). releases/ may be publicly reachable. Verify site-url is correct and the site is reachable."
+          exit 1

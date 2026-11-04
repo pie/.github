@@ -66,6 +66,11 @@ on:
         description: "Node version to use"
         required: false
         default: "18"
+      deploy-type:
+        type: string
+        description: "Deploy type: 'standard' (the default) or 'atomic' (upload jobs in the Atomic Deploy flow). Any other value fails the job."
+        required: false
+        default: "standard"
     secrets:
       SSH_PRIVATE_KEY:
         description: "SSH private key"
@@ -111,3 +116,4 @@ jobs:
           npm: ${{inputs.npm}}
           npm-run-command: ${{inputs.npm-run-command}}
           node_version: ${{inputs.node_version}}
+          deploy-type: ${{inputs.deploy-type}}

@@ -1,0 +1,139 @@
+# Caller input sets for deploy.yaml, for the deploy-type equivalence tests
+# (tests/deploy-type/test-equivalence.sh).
+#
+# Each is the `with:` block a real caller passes, with hosts, users, paths and
+# site names replaced by made-up ones (this repo is public, so no client, host
+# or provider is named). The shape is kept exactly: chained commands, globs,
+# ~ paths, a non-default ssh-port, value types (numbers and booleans as the
+# callers write them). `from` says which kind of caller each one stands for.
+#
+# The brief's Constraints name these shapes: a theme with a chained
+# npm-run-command (staging and production), a glob source-path with npm and a
+# non-default ssh port, a ~/applications/... destination, and npm + composer
+# to an absolute managed-host path. The rest add the input paths those don't
+# reach (sshpass, rsync-args, defaults only) and the atomic upload jobs of the
+# private dummy test repo.
+
+callers:
+  - id: chained-npm-staging
+    from: theme, chained npm-run-command, staging
+    with:
+      ssh-host: host.example.test
+      ssh-user: deploy-stg
+      working-directory: ./themes/example-theme/
+      source-path: ./themes/example-theme/
+      destination-path: ~/staging/public_html/wp-content/themes/example-theme/
+      npm: true
+      node_version: 14
+      npm-run-command: npx yarn@1.22.22 install --frozen-lockfile && npm run build && composer install --working-dir=plugins/example-custom-plugin --no-dev --no-interaction --no-progress --prefer-dist --optimize-autoloader
+
+  - id: chained-npm-production
+    from: theme, chained npm-run-command, production
+    with:
+      ssh-host: host.example.test
+      ssh-user: deploy-prod
+      working-directory: ./themes/example-theme/
+      source-path: ./themes/example-theme/
+      destination-path: ~/site/public_html/wp-content/themes/example-theme/
+      npm: true
+      node_version: 14
+      npm-run-command: npx yarn@1.22.22 install --frozen-lockfile && npm run build && composer install --working-dir=plugins/example-custom-plugin --no-dev --no-interaction --no-progress --prefer-dist --optimize-autoloader
+
+  - id: glob-source-path
+    from: app, glob source-path, npm, non-default ssh-port, staging
+    with:
+      ssh-host: 192.0.2.10
+      ssh-user: exampleuser
+      ssh-port: 2022
+      destination-path: ~/public_html/app.example.test
+      source-path: ./.next/standalone/*
+      npm: true
+      node_version: 20
+      npm-run-command: 'npm run build'
+
+  - id: applications-path-destination
+    from: child theme, ~/applications/... destination, production
+    with:
+      ssh-host: 192.0.2.20
+      ssh-user: appuser_example
+      destination-path: ~/applications/exampleapp/public_html/wp-content/plugins/example-child-theme
+
+  - id: managed-host-theme-npm-composer
+    from: theme, npm + composer, absolute managed-host path, production
+    with:
+      ssh-host: managed.example.test
+      ssh-user: example
+      working-directory: ./themes/example/
+      source-path: ./themes/example/
+      destination-path: /home/managed-user/sites/example/wp-content/themes/example
+      npm: true
+      node_version: 18
+      composer: true
+
+  - id: managed-host-plugin-plain
+    from: plugin, plain upload, absolute managed-host path, production
+    with:
+      ssh-host: managed.example.test
+      ssh-user: example
+      source-path: ./plugins/example-plugin/
+      destination-path: /home/managed-user/sites/example/wp-content/plugins/example-plugin
+
+  - id: sshpass-true
+    from: whole repo to ~/public_html/, sshpass true
+    with:
+      ssh-host: host.example.test
+      ssh-user: example.test
+      working-directory: ./
+      source-path: ./
+      destination-path: ~/public_html/
+      sshpass: true
+
+  - id: sshpass-odd-value
+    from: none (input edge case; deploy.yaml and the action test sshpass differently)
+    with:
+      ssh-host: host.example.test
+      destination-path: ~/public_html/
+      sshpass: "yes"
+
+  - id: custom-rsync-args-and-port
+    from: none (13 callers pass rsync-args, 14 pass ssh-port)
+    with:
+      ssh-host: host.example.test
+      ssh-user: deployer
+      ssh-port: 2222
+      source-path: ./wp-content/
+      destination-path: ~/public_html/wp-content
+      rsync-args: --no-perms --no-times --no-owner --delete-after --exclude=uploads
+      composer: true
+      composer-args: --no-dev --no-interaction
+      working-directory: ./wp-content/plugins/example
+
+  - id: defaults-only
+    from: none (only the required inputs)
+    with:
+      ssh-host: host.example.test
+      destination-path: /var/www/example
+
+  - id: atomic-upload-plugin
+    from: atomic upload job (deploy_plugin)
+    with:
+      ssh-host: atomic.example.test
+      ssh-user: deployer-atomic
+      source-path: plugins/example-atomic-plugin/
+      destination-path: /home/deployer-atomic/site/public_html/releases/abcdef12/plugins/example-atomic-plugin
+
+  - id: atomic-upload-theme
+    from: atomic upload job (deploy_theme)
+    with:
+      ssh-host: atomic.example.test
+      ssh-user: deployer-atomic
+      source-path: themes/example-atomic-theme/
+      destination-path: /home/deployer-atomic/site/public_html/releases/abcdef12/themes/example-atomic-theme
+
+  - id: atomic-upload-migrations
+    from: atomic upload job (deploy_migrations)
+    with:
+      ssh-host: atomic.example.test
+      ssh-user: deployer-atomic
+      source-path: migrations/
+      destination-path: /home/deployer-atomic/site/public_html/releases/abcdef12/migrations
