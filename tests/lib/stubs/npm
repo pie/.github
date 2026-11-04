@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Test stub for npm: records the call and does nothing.
+set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=_lib.sh
+. "$(dirname "$(readlink -f "$0")")/_lib.sh"
+stub_log npm "$*"
+exit 0

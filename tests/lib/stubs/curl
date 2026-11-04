@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# Test stub for curl: a fake web server for the site under test.
+#
+#   STUB_SITE_URL        the site's URL (e.g. https://site.test)
+#   STUB_WEB_ROOT        the directory it serves (the WordPress root)
+#   STUB_CURL_MODE       exposed     every existing file or directory: 200, else 404
+#                        protected   anything under $STUB_PROTECTED_PREFIX: 403,
+#                                    else as exposed
+#                        unreachable no answer: status 000, curl exit 7
+#                        hang        no answer within the time limit: status 000,
+#                                    curl exit 28 (what --max-time does to a hang)
+#                        fixed       always $STUB_CURL_STATUS
+#   STUB_PROTECTED_PREFIX  path under the web root that "protected" denies
+#                        (default: releases)
+# A URL outside STUB_SITE_URL is unreachable (exit 6). Each call is logged;
+# when -m/--max-time was given, a second line "curl-maxtime<TAB><seconds>" is
+# logged with it, so a test can see the call was bounded.
+set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=_lib.sh
+. "$(dirname "$(readlink -f "$0")")/_lib.sh"
+out=""
+wfmt=""
+fail=0
+head=0
+url=""
+maxtime=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -o|--output) out="$2"; shift 2 ;;
+        -w|--write-out) wfmt="$2"; shift 2 ;;
+        -f|--fail|--fail-with-body) fail=1; shift ;;
+        -I|--head) head=1; shift ;;
+        -m|--max-time) maxtime="$2"; shift 2 ;;
+        --connect-timeout|--retry|--retry-delay|--retry-max-time|-A|--user-agent|-H|--header|-X|--request|-u|--user|-e|--referer|--resolve|-r|--range|-x|--proxy)
+            shift 2 ;;
+        --*) shift ;;
+        -?*)
+            [[ "$1" == *f* ]] && fail=1
+            [[ "$1" == *I* ]] && head=1
+            shift ;;
+        *) url="$1"; shift ;;
+    esac
+done
+mode="${STUB_CURL_MODE:-exposed}"
+site="${STUB_SITE_URL%/}"
+code=0
+body=""
+if [ "$mode" = unreachable ]; then
+    status=000; code=7
+elif [ "$mode" = hang ]; then
+    status=000; code=28
+elif [ -z "$site" ] || { [ "$url" != "$site" ] && [[ "$url" != "$site"/* ]]; }; then
+    status=000; code=6
+elif [ "$mode" = fixed ]; then
+    status="${STUB_CURL_STATUS:?STUB_CURL_STATUS not set}"
+else
+    rel="${url#"$site"}"
+    rel="${rel%%\?*}"
+    rel="${rel#/}"
+    file="${STUB_WEB_ROOT:?STUB_WEB_ROOT not set}/$rel"
+    prefix="${STUB_PROTECTED_PREFIX:-releases}"
+    if [ "$mode" = protected ] && { [ "$rel" = "$prefix" ] || [[ "$rel" == "$prefix"/* ]]; }; then
+        status=403
+    elif [ -f "$file" ]; then
+        status=200; body="$(cat "$file")"
+    elif [ -d "$file" ]; then
+        status=200; body="Index of /$rel"
+    else
+        status=404
+    fi
+fi
+[ -z "$maxtime" ] || stub_log curl-maxtime "$maxtime"
+stub_log curl "$url" "$status"
+if [ "$code" = 0 ]; then
+    if [ "$head" = 1 ]; then
+        body="HTTP/1.1 $status"$'\r\n'
+    fi
+    if [ -n "$out" ]; then
+        [ "$out" = /dev/null ] || printf '%s' "$body" > "$out"
+    else
+        printf '%s' "$body"
+    fi
+fi
+if [ -n "$wfmt" ]; then
+    w="${wfmt//%\{http_code\}/$status}"
+    w="${w//%\{response_code\}/$status}"
+    w="${w//\\n/$'\n'}"
+    printf '%s' "$w"
+fi
+if [ "$code" != 0 ]; then
+    exit "$code"
+fi
+if [ "$fail" = 1 ] && [ "$status" -ge 400 ]; then
+    exit 22
+fi
+exit 0
