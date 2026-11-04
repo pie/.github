@@ -49,7 +49,7 @@ jobs:
       # release's own components.txt/queries/full-sha.txt directly from
       # releases/ on the server — the exact files that release actually
       # deployed, not whatever a fresh checkout of some ref happens to have.
-      - uses: pie/.github/actions/add-ssh-config@feature/add-symlink-and-sql-flows
+      - uses: pie/.github/actions/add-ssh-config@main
         name: Add SSH key to runner
         with:
           ssh-user: ${{inputs.ssh-user}}
@@ -57,7 +57,7 @@ jobs:
           ssh-host: ${{inputs.ssh-host}}
           ssh-key: ${{secrets.SSH_PRIVATE_KEY}}
 
-      - uses: pie/.github/actions/rollback-deploy@feature/add-symlink-and-sql-flows
+      - uses: pie/.github/actions/rollback-deploy@main
         name: Roll back most recent release (files and migrations)
         with:
           wp-root: ${{inputs.wp-root}}

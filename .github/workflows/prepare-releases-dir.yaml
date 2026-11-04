@@ -36,7 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
-      - uses: pie/.github/actions/add-ssh-config@feature/add-symlink-and-sql-flows
+      - uses: pie/.github/actions/add-ssh-config@main
         name: Add SSH key to runner
         with:
           ssh-user: ${{inputs.ssh-user}}
@@ -44,7 +44,7 @@ jobs:
           ssh-host: ${{inputs.ssh-host}}
           ssh-key: ${{secrets.SSH_PRIVATE_KEY}}
 
-      - uses: pie/.github/actions/prepare-releases-dir@feature/add-symlink-and-sql-flows
+      - uses: pie/.github/actions/prepare-releases-dir@main
         name: Create and protect releases directory
         with:
           wp-root: ${{inputs.wp-root}}
