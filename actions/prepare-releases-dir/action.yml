@@ -24,8 +24,8 @@ runs:
           exit 1
         fi
 
-        # scp/rsync (used elsewhere in this pipeline with paths derived from
-        # these inputs) invoke a remote shell to interpret their destination
+        # rsync (used elsewhere in this pipeline with paths derived from
+        # these inputs) invokes a remote shell to interpret their destination
         # path — unlike the ssh commands here, which quote safely via %q,
         # that remote-side parsing isn't protected by local quoting. Keeping
         # to a safe character set closes that off regardless.
