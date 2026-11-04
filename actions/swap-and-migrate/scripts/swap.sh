@@ -406,7 +406,16 @@ for COMPONENT in "${COMPONENTS[@]}"; do
     STAGING_PATH="${LIVE_PATH}.deploying"
     OLD_PATH="${LIVE_PATH}.previous"
 
-    # Clear any remnants from a previous failed deploy
+    # A .previous with no live directory means an earlier run died between
+    # its two renames (live -> .previous, staging -> live): .previous is the
+    # only copy of what was live, so it's put back rather than deleted.
+    if { [ -e "$OLD_PATH" ] || [ -L "$OLD_PATH" ]; } && [ ! -e "$LIVE_PATH" ] && [ ! -L "$LIVE_PATH" ]; then
+        mv "$OLD_PATH" "$LIVE_PATH"
+        echo "::warning::$LIVE_PATH was missing and $OLD_PATH existed — an earlier run stopped between its two renames. Restored $OLD_PATH to $LIVE_PATH before deploying."
+    fi
+
+    # Clear any remnants from a previous failed deploy (a .previous still
+    # here sits beside a live directory, so it's stale)
     rm -rf "$STAGING_PATH" "$OLD_PATH"
 
     # Rsync to a hidden staging directory not yet visible to WordPress
@@ -442,7 +451,8 @@ done
 # were uploaded, not that swap.sh ever actually went live for it. Pruning
 # below and rollback-deploy's release selection both require this marker,
 # not just components.txt, so a release whose swap failed partway is never
-# mistaken for one that completed.
+# mistaken for one that completed. rollback-deploy removes it again from a
+# release it rolls back.
 touch "$NEW_RELEASE_DIR/migrations/deploy-complete.txt"
 
 # ==============================================================================
@@ -474,7 +484,8 @@ log "Pruning old releases"
 
 # Keeps the single newest OTHER release that actually completed (has
 # deploy-complete.txt) as "prior" — a release whose swap failed partway
-# never finished going live, so it doesn't occupy that slot and is pruned
+# never finished going live, and a release rollback-deploy rolled back has
+# had its marker removed, so neither occupies that slot; each is pruned
 # away like any older release once a completed one exists. components.txt
 # is still required to delete anything at all: every real release has it,
 # so an unrelated sibling directory (releases-dir could point anywhere

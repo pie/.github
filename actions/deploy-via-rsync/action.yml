@@ -60,9 +60,29 @@ inputs:
     required: false
     default: "npm run build"
 
+  deploy-type:
+    description: "Deploy type: 'standard' (the default) deploys as before; 'atomic' is for upload jobs in the Atomic Deploy flow (creates the destination directory and passes inputs to rsync as quoted environment variables). Any other value fails the job."
+    required: false
+    default: "standard"
+
 runs:
   using: "composite"
   steps:
+    - name: Validate deploy-type
+      shell: bash
+      env:
+        DEPLOY_TYPE: ${{ inputs.deploy-type }}
+      run: |
+        case "$DEPLOY_TYPE" in
+          standard|atomic)
+            echo "Deploy type: $DEPLOY_TYPE"
+            ;;
+          *)
+            echo "::error::deploy-type must be 'standard' or 'atomic' (got '$DEPLOY_TYPE')."
+            exit 1
+            ;;
+        esac
+
     - name: Check out the Repo
       uses: actions/checkout@v7
 
@@ -80,8 +100,16 @@ runs:
       with:
         node-version: ${{ inputs.node_version || matrix.node }}
 
+    # Steps that differ between deploy types come in pairs: the standard one
+    # exactly as before deploy-type existed, the atomic one with inputs passed
+    # through env vars and quoted.
     - name: Install dependencies and build
-      if: ${{inputs.npm == 'true' }}
+      if: ${{inputs.npm == 'true' && inputs.deploy-type != 'atomic' }}
+      run: cd ${{inputs.working-directory}} && npm install && ${{inputs.npm-run-command}}
+      shell: bash
+
+    - name: Install dependencies and build
+      if: ${{ inputs.npm == 'true' && inputs.deploy-type == 'atomic' }}
       shell: bash
       env:
         WORKING_DIR: ${{ inputs.working-directory }}
@@ -95,20 +123,25 @@ runs:
       shell: bash
       run: |
         if [ -f ".rsyncignore" ]; then
-          echo "EXCLUDE_FROM= --exclude-from=.rsyncignore " >> "$GITHUB_ENV"
+          echo EXCLUDE_FROM=" --exclude-from=.rsyncignore " >> "$GITHUB_ENV"
         else
-          echo "EXCLUDE_FROM=" >> "$GITHUB_ENV"
+          echo EXCLUDE_FROM="" >> "$GITHUB_ENV"
         fi
     
     - name: Create destination directory (pubkey)
-      if: inputs.sshpass != 'true'
+      if: inputs.sshpass != 'true' && inputs.deploy-type == 'atomic'
       shell: bash
       env:
         DEST: ${{ inputs.destination-path }}
       run: ssh server "mkdir -p $(printf '%q' "$DEST")"
 
     - name: Rsync to the remote with pubkey
-      if: inputs.sshpass != 'true'
+      if: inputs.sshpass != 'true' && inputs.deploy-type != 'atomic'
+      run: rsync ${{inputs.rsync-flags}}  ${{inputs.rsync-args}} ${{ env.EXCLUDE_FROM }} ${{inputs.source-path}} server:${{inputs.destination-path}}
+      shell: bash
+
+    - name: Rsync to the remote with pubkey
+      if: inputs.sshpass != 'true' && inputs.deploy-type == 'atomic'
       shell: bash
       env:
         RSYNC_FLAGS: ${{ inputs.rsync-flags }}
@@ -118,7 +151,12 @@ runs:
       run: rsync $RSYNC_FLAGS $RSYNC_ARGS $EXCLUDE_FROM "$SOURCE_PATH" "server:$DEST"
 
     - name: Set SSHPASS environment variable
-      if: inputs.sshpass == 'true'
+      if: inputs.sshpass == 'true' && inputs.deploy-type != 'atomic'
+      run: echo "SSHPASS=${{inputs.ssh-pass}}" >> "$GITHUB_ENV"
+      shell: bash
+
+    - name: Set SSHPASS environment variable
+      if: inputs.sshpass == 'true' && inputs.deploy-type == 'atomic'
       shell: bash
       env:
         SSH_PASS: ${{ inputs.ssh-pass }}
@@ -136,7 +174,7 @@ runs:
       shell: bash
 
     - name: Create destination directory (sshpass)
-      if: inputs.sshpass == 'true'
+      if: inputs.sshpass == 'true' && inputs.deploy-type == 'atomic'
       shell: bash
       env:
         DEST: ${{ inputs.destination-path }}
@@ -146,7 +184,12 @@ runs:
       run: sshpass -e ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "mkdir -p $(printf '%q' "$DEST")"
 
     - name: Rsync to the remote with sshpass
-      if: inputs.sshpass == 'true'
+      if: inputs.sshpass == 'true' && inputs.deploy-type != 'atomic'
+      run: sshpass -e rsync ${{inputs.rsync-flags}}  ${{inputs.rsync-args}} ${{ env.EXCLUDE_FROM }} -e 'ssh -o StrictHostKeyChecking=no -p ${{inputs.ssh-port}}'  ${{inputs.source-path}} ${{inputs.ssh-user}}@${{inputs.ssh-host}}:${{inputs.destination-path}}
+      shell: bash
+
+    - name: Rsync to the remote with sshpass
+      if: inputs.sshpass == 'true' && inputs.deploy-type == 'atomic'
       shell: bash
       env:
         RSYNC_FLAGS: ${{ inputs.rsync-flags }}

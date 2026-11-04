@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Test stub for wp-cli. Enough for swap.sh and rollback-deploy.sh with no
+# migrations: the database is reachable, the prefix is wp_, there is no
+# migrations table, and maintenance mode is the .maintenance file, as in
+# wp-cli. Anything else fails loudly so a test can't pass by accident.
+set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=_lib.sh
+. "$(dirname "$(readlink -f "$0")")/_lib.sh"
+path=""
+words=()
+for a in "$@"; do
+    case "$a" in
+        --path=*) path="${a#--path=}" ;;
+        --*) ;;
+        *) words+=("$a") ;;
+    esac
+done
+stub_log wp "$*"
+sub="${words[*]:0:2}"
+case "$sub" in
+    "db check") exit 0 ;;
+    "config get")
+        [ "${words[2]:-}" = table_prefix ] && { echo "${STUB_WP_PREFIX:-wp_}"; exit 0; } ;;
+    "db query")
+        sql="${words[2]:-}"
+        if [ -z "$sql" ]; then cat > /dev/null; exit 0; fi
+        if [[ "$sql" == *information_schema* && "$sql" == *"COUNT(*)"* ]]; then echo 0; exit 0; fi
+        if [[ "$sql" == *information_schema* ]]; then exit 0; fi
+        ;;
+    "maintenance-mode activate")
+        [ -n "$path" ] && : > "$path/.maintenance" && exit 0 ;;
+    "maintenance-mode deactivate")
+        [ -n "$path" ] && rm -f "$path/.maintenance" && exit 0 ;;
+    "maintenance-mode status")
+        [ -f "$path/.maintenance" ] && { echo active; exit 0; }
+        echo inactive; exit 0 ;;
+esac
+echo "wp stub: '$*' isn't supported by tests/lib/stubs/wp" >&2
+exit 1

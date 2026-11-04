@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Test stub for ssh: runs the remote command on this machine, in
+# $STUB_REMOTE_HOME, with stdin passed through. Never connects anywhere.
+set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=_lib.sh
+. "$(dirname "$(readlink -f "$0")")/_lib.sh"
+args=("$@")
+i=0
+host=""
+while [ "$i" -lt "${#args[@]}" ]; do
+    case "${args[$i]}" in
+        -[bcDEeFIiJLlmOopQRSWw]) i=$((i + 2)) ;;
+        -*) i=$((i + 1)) ;;
+        *) host="${args[$i]}"; i=$((i + 1)); break ;;
+    esac
+done
+cmd="${args[*]:$i}"
+stub_log ssh "$host" "$cmd"
+if [ -z "$cmd" ]; then
+    echo "ssh stub: no remote command given (interactive ssh isn't supported)" >&2
+    exit 255
+fi
+cd "${STUB_REMOTE_HOME:-$HOME}"
+HOME="${STUB_REMOTE_HOME:-$HOME}" exec bash -c "$cmd"

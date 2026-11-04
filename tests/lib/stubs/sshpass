@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Test stub for sshpass: drops its own options and runs the rest (which is
+# itself stubbed: ssh or rsync).
+set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=_lib.sh
+. "$(dirname "$(readlink -f "$0")")/_lib.sh"
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -p|-f|-d|-P) shift 2 ;;
+        -e|-v|-h|-V) shift ;;
+        *) break ;;
+    esac
+done
+stub_log sshpass "$*"
+exec "$@"

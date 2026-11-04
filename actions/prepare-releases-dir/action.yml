@@ -89,10 +89,13 @@ runs:
         # swap-and-migrate uploads swap.sh/migrate.sh/components.txt —
         # deliberately, so releases-dir is protected before anything ever
         # lands in it, not only from swap.sh's Step 4 onward. swap.sh still
-        # repeats this on every deploy as a defensive, idempotent fallback
-        # (e.g. for callers that haven't added this job yet), but that alone
-        # runs after this deploy's own dry run and live migrations, which is
-        # too late if either of those fails first.
+        # repeats this on every deploy as a defensive, idempotent repeat, but
+        # it doesn't cover a caller without this job: when site-url is set,
+        # swap-and-migrate probes releases/ before swap.sh runs, and an
+        # unprotected releases/ (HTTP 200) stops the deploy there, so swap.sh
+        # never gets to write its .htaccess. Without site-url there is no
+        # probe, and swap.sh's repeat runs after this deploy's own dry run and
+        # live migrations, which is too late if either of those fails first.
         ssh server "mkdir -p $RELEASES_DIR_Q"
         # Overwritten, not appended: this file has exactly one job, and
         # Apache combines sibling Require directives as an OR, so appending

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Test stub for scp: host:path arguments become local paths, then cp.
+set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=_lib.sh
+. "$(dirname "$(readlink -f "$0")")/_lib.sh"
+recursive=()
+paths=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -P|-o|-i|-F|-c|-l|-J|-S) shift 2; continue ;;
+        -r) recursive=(-r); shift; continue ;;
+        -*) shift; continue ;;
+    esac
+    a="$1"
+    if is_remote_arg "$a"; then
+        a="$(map_remote_path "${a#*:}")"
+    fi
+    paths+=("$a")
+    shift
+done
+stub_log scp "${paths[*]}"
+exec "$(real_bin cp)" "${recursive[@]}" "${paths[@]}"
