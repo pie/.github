@@ -66,6 +66,69 @@ concurrency:
 
 This doesn't need to match the group key above — that pair already handles deploy-vs-rollback DB safety independently of this.
 
+**Hosts that limit SSH connections:**
+
+Every upload job opens its own SSH connections (a `mkdir -p` for the release path, then the rsync), and GitHub starts jobs with the same `needs:` at the same time. Some hosts cap concurrent SSH connections per user: WP Engine allows 5, and a deploy with six upload jobs goes over it, failing an upload with:
+
+```
+The concurrent connection limit of 5 connections per user has been reached.
+```
+
+Nothing live changes when this happens (the swap never starts), but the run fails. Put components of the same type into one matrix job and cap it with `max-parallel`, so the number of uploads running at once stays under the host's limit. Here the theme's job plus two plugins at a time makes at most 3:
+
+```yaml
+  deploy_theme:
+    needs: [setup, prepare_releases_dir]
+    uses: pie/.github/.github/workflows/deploy.yaml@main
+    with:
+      ssh-host: example.com
+      destination-path: /home/piecode/site/public_html/releases/${{ needs.setup.outputs.short-sha }}/themes/my-theme
+      deploy-type: atomic
+    secrets:
+      SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
+
+  deploy_plugins:
+    needs: [setup, prepare_releases_dir]
+    name: Deploy ${{ matrix.plugin.name }}
+    strategy:
+      max-parallel: 2     # with deploy_theme, at most 3 uploads at once
+      fail-fast: false    # let the others finish; atomic_deploy won't run anyway
+      matrix:
+        plugin:
+          - name: "My Plugin"
+            slug: my-plugin
+          - name: "My Other Plugin"
+            slug: my-other-plugin
+          - name: "A Third Plugin"
+            slug: a-third-plugin
+    uses: pie/.github/.github/workflows/deploy.yaml@main
+    with:
+      ssh-host: example.com
+      source-path: ./plugins/${{ matrix.plugin.slug }}/
+      destination-path: /home/piecode/site/public_html/releases/${{ needs.setup.outputs.short-sha }}/plugins/${{ matrix.plugin.slug }}
+      deploy-type: atomic
+    secrets:
+      SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
+
+  atomic_deploy:
+    needs: [deploy_theme, deploy_plugins]   # waits for every matrix entry
+    uses: pie/.github/.github/workflows/atomic-deploy.yaml@main
+    with:
+      ssh-host: example.com
+      wp-root: /home/piecode/site/public_html
+      site-url: https://example.com
+      components: |
+        themes:my-theme
+        plugins:my-plugin
+        plugins:my-other-plugin
+        plugins:a-third-plugin
+    secrets:
+      SSH_PRIVATE_KEY: ${{secrets.SSH_PRIVATE_KEY}}
+```
+
+- `components` still lists every component by hand: it must match what the upload jobs put in the release, one line per matrix entry.
+- `max-parallel` only limits the matrix job itself. Count every other upload job with the same `needs:` (here the theme) towards the host's limit, and keep at least one connection spare for anything else using the same SSH user.
+
 **Migrations run against live tables:**
 
 Earlier versions of this workflow cloned every table to a new prefix, migrated the copy, then switched `wp-config.php` over — giving an instant fallback if something went wrong, at the cost of a lot of moving parts (full DB export, foreign key/trigger reconstruction, prefix bookkeeping) for a safety net that MySQL's non-transactional DDL couldn't fully honour anyway. Mainstream migration tools (Laravel, Rails, Django) don't clone either — they migrate live tables directly, for the same reason. This workflow now does the same:
