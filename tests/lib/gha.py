@@ -8,7 +8,8 @@ Two jobs:
             name, uses, with, env, run, shell, ...), with every ${{ }} that
             depends only on inputs rendered, at two git refs, and diffs them.
             Used for the deploy-type equivalence tests (standard == main,
-            atomic == #5's branch).
+            atomic == #5's branch), with --allow-php-setup for the one
+            later, intended change to the composer step.
 
   run-workflow / run-action
             Executes a workflow's jobs, or one action, on this machine:
@@ -679,6 +680,39 @@ def same_effect(a, b, tmp):
     return True
 
 
+# Composer's PHP pinned (task 1220862271790405): php-actions/composer, on the
+# newest PHP image, was replaced by shivammathur/setup-php and a plain
+# `composer install`, and deploy.yaml gained php-version and php-extensions.
+# With --allow-php-setup both sides reduce the composer step to what composer
+# was asked to do (its args and directory), drop the setup-php step and the
+# two PHP inputs, and every other step is still compared text for text. What
+# setup-php is given is checked on its own (tests/composer/test-php-setup.sh).
+SETUP_PHP_RE = re.compile(r"^shivammathur/setup-php@")
+COMPOSER_ACTION_RE = re.compile(r"^php-actions/composer@")
+COMPOSER_STEP_RE = re.compile(r"Install Composer Dependencies")
+PHP_INPUTS = ("php-version", "php-extensions")
+
+
+def without_php_setup(steps):
+    out = []
+    for rec in steps:
+        uses = rec.get("uses", "")
+        if SETUP_PHP_RE.match(uses):
+            continue
+        if COMPOSER_ACTION_RE.match(uses):
+            w = rec.get("with") or {}
+            rec = {"step": rec["step"], "composer install": {
+                "args": w.get("args"), "working-dir": w.get("working_dir")}}
+        elif "run" in rec and COMPOSER_STEP_RE.search(rec["step"]) and "COMPOSER_ARGS" in (rec.get("env") or {}):
+            env = rec["env"]
+            rec = {"step": rec["step"], "composer install": {
+                "args": env.get("COMPOSER_ARGS"), "working-dir": env.get("WORKING_DIR")}}
+        elif "with" in rec:
+            rec = dict(rec, **{"with": {k: v for k, v in rec["with"].items() if k not in PHP_INPUTS}})
+        out.append(rec)
+    return out
+
+
 def dump(steps):
     return json.dumps(steps, indent=2, sort_keys=True).splitlines()
 
@@ -706,6 +740,8 @@ def cmd_compare(args):
             print("FAIL %s: %s" % (label, exc))
             failures += 1
             continue
+        if args.allow_php_setup:
+            b_steps, h_steps = without_php_setup(b_steps), without_php_setup(h_steps)
         problems = []
         if b_steps != h_steps:
             ok = len(b_steps) == len(h_steps) and args.effect_equal_run
@@ -1046,6 +1082,8 @@ def main():
                    help="accept a differing run: text when running both versions has the same effect")
     c.add_argument("--expect-validation", action="store_true",
                    help="fail unless the head side runs a deploy-type validation step")
+    c.add_argument("--allow-php-setup", action="store_true",
+                   help="accept composer's PHP being set up with setup-php (see without_php_setup)")
     c.set_defaults(fn=cmd_compare)
 
     k = sub.add_parser("collect-callers", help="caller input sets from a folder of real callers' workflows")

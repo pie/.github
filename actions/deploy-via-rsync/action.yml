@@ -39,6 +39,14 @@ inputs:
     description: "Additional arguments to pass to composer"
     required: false
     default: "--no-dev --no-interaction --no-progress --optimize-autoloader --prefer-dist"
+  php-version:
+    description: "PHP version to run composer install with"
+    required: false
+    default: "8.5"
+  php-extensions:
+    description: "PHP extensions to install for composer install (comma-separated)"
+    required: false
+    default: "mbstring"
   sshpass:
     description: "Connect using SSH Pass instead of Key"
     required: false
@@ -86,13 +94,24 @@ runs:
     - name: Check out the Repo
       uses: actions/checkout@v7
 
+    # Pins PHP rather than using whatever is newest: PHP 8.6's official images
+    # left out mbstring, which broke composer install for packages that need it.
+    - name: Set up PHP if required
+      if: ${{inputs.composer == 'true' }}
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: ${{inputs.php-version}}
+        extensions: ${{inputs.php-extensions}}
+        tools: composer:v2
+        coverage: none
+
     - name: Install Composer Dependencies if required
       if: ${{inputs.composer == 'true' }}
-      uses: php-actions/composer@v6
-      with:
-        command: install
-        args: ${{inputs.composer-args}}
-        working_dir: ${{inputs.working-directory}}
+      shell: bash
+      env:
+        WORKING_DIR: ${{ inputs.working-directory }}
+        COMPOSER_ARGS: ${{ inputs.composer-args }}
+      run: composer install --working-dir="$WORKING_DIR" $COMPOSER_ARGS
         
     - name: Install Node Dependencies if required
       if: ${{inputs.npm == 'true' }}

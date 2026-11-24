@@ -8,6 +8,7 @@ for t in \
     deploy-type/test-equivalence.sh \
     deploy-type/test-invalid-deploy-type.sh \
     deploy-type/test-release-yaml.sh \
+    composer/test-php-setup.sh \
     atomic/test-leftover-previous.sh \
     atomic/test-rollback-then-deploy.sh \
     atomic/test-exposure-check.sh \
