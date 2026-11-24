@@ -9,6 +9,13 @@
 #             contains "deploy-type"), which must do nothing for a valid value.
 #             origin/main here means $BASE_MAIN: main before #5 (lib/testlib.sh).
 #             Checked with deploy-type: standard passed, and not passed at all.
+#   later     One intended change since: composer runs on a pinned PHP set up
+#             with shivammathur/setup-php instead of php-actions/composer, and
+#             deploy.yaml takes php-version and php-extensions (task
+#             1220862271790405). --allow-php-setup accepts exactly that, and
+#             only if composer is still given the same args and directory;
+#             see without_php_setup in lib/gha.py. The new step's own inputs
+#             are checked in composer/test-php-setup.sh.
 #   atomic    The same extraction with deploy-type: atomic equals #5's branch
 #             before the opt-in ($BASE_PR5, 4b3ef1b) for the same inputs. A
 #             step whose run: text differs is accepted only if running both
@@ -42,17 +49,17 @@ compare() {  # compare <description> <base ref> <callers file> [gha compare args
 }
 
 case_start "standard == $BASE_MAIN (main before #5), for each caller input set"
-compare "deploy-type: standard passed" "$BASE_MAIN" "$FIXTURES" --deploy-type standard --expect-validation
-compare "deploy-type not passed (default)" "$BASE_MAIN" "$FIXTURES" --expect-validation
+compare "deploy-type: standard passed" "$BASE_MAIN" "$FIXTURES" --deploy-type standard --expect-validation --allow-php-setup
+compare "deploy-type not passed (default)" "$BASE_MAIN" "$FIXTURES" --expect-validation --allow-php-setup
 
 case_start "atomic == $BASE_PR5, for each caller input set"
-compare "deploy-type: atomic passed" "$BASE_PR5" "$FIXTURES" --deploy-type atomic --expect-validation --effect-equal-run
+compare "deploy-type: atomic passed" "$BASE_PR5" "$FIXTURES" --deploy-type atomic --expect-validation --allow-php-setup --effect-equal-run
 
 if [ -n "${CALLERS_DIR:-}" ]; then
     case_start "standard == origin/main, for every real caller in $CALLERS_DIR"
     real="$(mktemp)"
     "${GHA[@]}" collect-callers --dir "$CALLERS_DIR" --out "$real"
-    compare "real callers, deploy-type not passed" "$BASE_MAIN" "$real" --expect-validation
+    compare "real callers, deploy-type not passed" "$BASE_MAIN" "$real" --expect-validation --allow-php-setup
     rm -f "$real"
 fi
 

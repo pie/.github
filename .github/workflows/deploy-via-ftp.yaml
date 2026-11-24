@@ -33,6 +33,16 @@ on:
         description: "Whether to run composer install"
         required: false
         default: "false"
+      php-version:
+        type: string
+        description: "PHP version to run composer install with"
+        required: false
+        default: "8.5"
+      php-extensions:
+        type: string
+        description: "PHP extensions to install for composer install (comma-separated)"
+        required: false
+        default: "mbstring"
       npm: 
         type: string
         description: "Whether to run npm install/build"
@@ -62,6 +72,8 @@ jobs:
           ftp-password: ${{secrets.FTP_PASSWORD}}
           destination-path: ${{inputs.destination-path}}
           composer: ${{inputs.composer}}
+          php-version: ${{inputs.php-version}}
+          php-extensions: ${{inputs.php-extensions}}
           npm: ${{inputs.npm}}
           node_version: ${{inputs.node_version}}
           ftp-exclude: ${{inputs.ftp-exclude}}

@@ -412,6 +412,8 @@ Deploys to a remote server using rsync, supporting both SSH key and password-bas
 - `rsync-args`: Additional arguments to pass to rsync. Optional, default is `--no-perms --no-times --no-owner --delete-after --delete-excluded`.
 - `composer`: Run `composer install` before deploying. Optional, default is `false`.
 - `composer-args`: Additional arguments to pass to composer. Optional, default is `--no-dev --no-interaction --no-progress --optimize-autoloader --prefer-dist`.
+- `php-version`: PHP version to run `composer install` with. Optional, default is `8.5`.
+- `php-extensions`: PHP extensions to install for `composer install`, comma-separated. Optional, default is `mbstring`.
 - `npm`: Run `npm install` and build before deploying. Optional, default is `false`.
 - `node_version`: Node.js version for the build. Optional, default is `18`.
 - `npm-run-command`: Command to run after `npm install`. Optional, default is `npm run build`.
@@ -452,6 +454,8 @@ Deploys to a remote server over FTP with optional Composer and npm build steps.
 - `ftp-port`: The FTP port. Optional, default is `21`.
 - `ftp-exclude`: Glob patterns of files to exclude. Optional, default excludes `.git*` and `node_modules`.
 - `composer`: Run `composer install` before deploying. Optional, default is `false`.
+- `php-version`: PHP version to run `composer install` with. Optional, default is `8.5`.
+- `php-extensions`: PHP extensions to install for `composer install`, comma-separated. Optional, default is `mbstring`.
 - `npm`: Run `npm install` and build before deploying. Optional, default is `false`.
 - `node_version`: Node.js version for the build. Optional, default is `18`.
 

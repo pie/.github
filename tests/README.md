@@ -25,6 +25,7 @@ tests/
   lib/testlib.sh         sandbox, deploy/rollback helpers, checks
   fixtures/callers.yaml  real callers' deploy.yaml inputs, anonymised (this repo is public)
   deploy-type/           deploy-type: standard == main, atomic == #5, invalid values, release.yaml
+  composer/              composer's pinned PHP: setup-php's version and extensions, both workflows
   atomic/                atomic deploy safety: exposure check, leftover .previous, rollback then deploy
   static/                shellcheck counts, YAML parsing, actionlint
   functional/            steps a person follows where a script can't reach (live deploys)
